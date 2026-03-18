@@ -18,7 +18,9 @@ class BabelioBot:
                 "AppleWebKit/537.36 (KHTML, like Gecko) "
                 "Chrome/122.0.0.0 Safari/537.36"
             )
-            context = browser.new_context(user_agent=user_agent)
+            context = browser.new_context(
+                user_agent=user_agent, locale="fr-FR", timezone_id="Europe/Paris"
+            )
             page = context.new_page()
 
             click.echo("Logging into Babelio...")
@@ -40,6 +42,10 @@ class BabelioBot:
                     babelio_synced = row[11].strip().upper()
                 except IndexError:
                     continue  # Malformed row
+
+                # Skip header row if present
+                if title.lower() == "title" and isbn.lower() == "isbn":
+                    continue
 
                 sheet_row_num = index + 2  # Google Sheet rows are 1-based, and +1 for header
 
@@ -87,18 +93,22 @@ class BabelioBot:
         # Handle Cookies Banner (SFBX Consent Manager iframe)
         try:
             click.echo("Waiting for potential cookies banner...")
-            # iframe title is "Consent Manager" or "Consent window"
+            # Button text can vary slightly depending on the exact version of the banner
             btn_selectors = (
                 'button.app-agree-button, button:has-text("Tout Accepter"), '
-                'button:has-text("Tout accepter"), button:has-text("Accept all")'
+                'button:has-text("Tout accepter"), button:has-text("Accepter tout")'
             )
 
-            # Create locators for both possible iframes
-            f1 = page.frame_locator('iframe[title="Consent Manager"]')
-            f2 = page.frame_locator('iframe[title="Consent window"]')
+            # The iframe title can change based on locale or SFBX updates
+            iframe_selector = (
+                'iframe[title="Consent Manager"], '
+                'iframe[title="Consent window"], '
+                'iframe[title="Fenêtre de consentement"], '
+                'iframe[src*="sfbx"]'
+            )
 
-            # Wait for any frame to have the accept button
-            accept_btn = f1.locator(btn_selectors).first.or_(f2.locator(btn_selectors).first)
+            consent_frame = page.frame_locator(iframe_selector)
+            accept_btn = consent_frame.locator(btn_selectors).first
 
             # Use force=True because visibility check sometimes fails for this banner
             accept_btn.click(force=True, timeout=10000)
@@ -109,25 +119,35 @@ class BabelioBot:
             click.echo("No cookies banner found or timed out. Proceeding to login.")
 
         # Wait for the login input to be visible and interactable before filling
-        page.wait_for_selector("input[name='login']", state="visible", timeout=10000)
-        page.fill("input[name='login']", self.username)
-        page.fill("input[name='password']", self.password)
-        page.click("button[type='submit']")
+        page.wait_for_selector("input[name='Login' i]", state="visible", timeout=10000)
+        page.fill("input[name='Login' i]", self.username)
+        page.fill("input[name='Password' i]", self.password)
+        page.click("input[name='sub_btn'], input[type='submit'][value*='onnexion' i]")
 
         try:
-            # Wait for an element that only appears when logged in
-            page.wait_for_selector(".header_user_menu", timeout=10000)
+            # Wait for the browser to redirect away from the login page
+            page.wait_for_function("window.location.pathname !== '/connection.php'", timeout=10000)
+            page.wait_for_load_state("domcontentloaded")
             click.echo("Successfully logged in.")
         except TimeoutError as err:
+            page.screenshot(path="login_timeout.png")
+            click.echo(f"Current page URL: {page.url}")
+            click.echo(f"Page title: {page.title()}")
+            click.echo(f"Body text snippet: {page.inner_text('body')[:500]}")
             raise Exception(
                 "Failed to login to Babelio. Check credentials or CAPTCHA presence."
             ) from err
 
     def _process_book(self, page, isbn, title, status_raw, dry_run):
         # 1. Search by ISBN
-        page.goto("https://www.babelio.com/")
-        page.fill("input#recherche_general", isbn)
-        page.press("input#recherche_general", "Enter")
+        page.goto("https://www.babelio.com/", wait_until="domcontentloaded")
+
+        # When logged in, the search bar ID is often 'searchbox'
+        search_selector = "input#searchbox, input#recherche_general"
+
+        page.wait_for_selector(search_selector, state="visible", timeout=10000)
+        page.fill(search_selector, isbn)
+        page.press(search_selector, "Enter")
 
         # Wait for either the book page (redirect) or search results
         try:
