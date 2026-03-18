@@ -1,7 +1,11 @@
+import html
+import os
 import time
 
 import click
 from playwright.sync_api import TimeoutError, sync_playwright
+
+STATE_FILE = ".babelio_state.json"
 
 
 class BabelioBot:
@@ -18,13 +22,20 @@ class BabelioBot:
                 "AppleWebKit/537.36 (KHTML, like Gecko) "
                 "Chrome/122.0.0.0 Safari/537.36"
             )
-            context = browser.new_context(
-                user_agent=user_agent, locale="fr-FR", timezone_id="Europe/Paris"
-            )
+
+            context_options = {
+                "user_agent": user_agent,
+                "locale": "fr-FR",
+                "timezone_id": "Europe/Paris",
+            }
+            if os.path.exists(STATE_FILE):
+                context_options["storage_state"] = STATE_FILE
+
+            context = browser.new_context(**context_options)
             page = context.new_page()
 
             click.echo("Logging into Babelio...")
-            self._login(page)
+            self._login(context, page)
 
             count = 0
             results = {"success": [], "skipped": [], "failed": []}
@@ -36,9 +47,9 @@ class BabelioBot:
                 # Assuming row format based on headers print:
                 # [0] Title, [5] Author, [7] Publisher, [8] Status, [9] ISBN, [11] Babelio
                 try:
-                    title = row[0]
-                    author = row[5] if len(row) > 5 else ""
-                    publisher = row[7] if len(row) > 7 else ""
+                    title = html.unescape(row[0])
+                    author = html.unescape(row[5]) if len(row) > 5 else ""
+                    publisher = html.unescape(row[7]) if len(row) > 7 else ""
                     status_raw = row[8]
                     isbn = row[9]
                     babelio_synced = row[11].strip().upper()
@@ -86,7 +97,14 @@ class BabelioBot:
         # Column 'L' is index 12 in 1-based (Babelio column)
         worksheet.update_cell(row_num, 12, value)
 
-    def _login(self, page):
+    def _login(self, context, page):
+        # 1. Check if we are already logged in
+        page.goto("https://www.babelio.com/", wait_until="domcontentloaded")
+        if page.locator("a[href*='mes_livres'], a[href*='profil']").is_visible():
+            click.echo("Already logged in via saved session state.")
+            return
+
+        click.echo("Session expired or missing. Logging in...")
         page.goto("https://www.babelio.com/connection.php")
 
         # Handle Cookies Banner (SFBX Consent Manager iframe)
@@ -128,6 +146,10 @@ class BabelioBot:
             page.wait_for_function("window.location.pathname !== '/connection.php'", timeout=10000)
             page.wait_for_load_state("domcontentloaded")
             click.echo("Successfully logged in.")
+
+            # Save the authentication state
+            context.storage_state(path=STATE_FILE)
+            click.echo("Session state saved.")
         except TimeoutError as err:
             page.screenshot(path="login_timeout.png")
             click.echo(f"Current page URL: {page.url}")

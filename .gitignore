@@ -14,3 +14,6 @@ wheels/
 
 # Screenshots
 *.png
+
+# State
+.babelio_state.json
