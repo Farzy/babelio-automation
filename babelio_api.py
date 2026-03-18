@@ -34,9 +34,11 @@ class BabelioBot:
                     break
 
                 # Assuming row format based on headers print:
-                # [0] Title, [5] Author, [8] Status, [9] ISBN, [11] Babelio
+                # [0] Title, [5] Author, [7] Publisher, [8] Status, [9] ISBN, [11] Babelio
                 try:
                     title = row[0]
+                    author = row[5] if len(row) > 5 else ""
+                    publisher = row[7] if len(row) > 7 else ""
                     status_raw = row[8]
                     isbn = row[9]
                     babelio_synced = row[11].strip().upper()
@@ -49,18 +51,15 @@ class BabelioBot:
 
                 sheet_row_num = index + 2  # Google Sheet rows are 1-based, and +1 for header
 
-                if babelio_synced == "OUI":
-                    continue  # Already synced
-
-                if not isbn:
-                    click.echo(f"[{title}] Skipped: No ISBN provided.")
-                    results["failed"].append((title, "No ISBN"))
-                    continue
+                if babelio_synced in ["OUI", "MAYBE"]:
+                    continue  # Already synced or marked as maybe
 
                 click.echo(f"\nProcessing: {title} (ISBN: {isbn})")
 
                 try:
-                    success, reason = self._process_book(page, isbn, title, status_raw, dry_run)
+                    success, reason = self._process_book(
+                        page, isbn, title, author, publisher, status_raw, dry_run
+                    )
                     if success:
                         if reason == "Already in library":
                             results["skipped"].append((isbn, title))
@@ -70,7 +69,7 @@ class BabelioBot:
                         else:
                             results["success"].append((isbn, title))
                             if not dry_run:
-                                self._update_sheet(worksheet, sheet_row_num, "OUI")
+                                self._update_sheet(worksheet, sheet_row_num, "Maybe")
                     else:
                         results["failed"].append((isbn, title, reason))
                 except Exception as e:
@@ -138,34 +137,84 @@ class BabelioBot:
                 "Failed to login to Babelio. Check credentials or CAPTCHA presence."
             ) from err
 
-    def _process_book(self, page, isbn, title, status_raw, dry_run):
-        # 1. Search by ISBN
-        page.goto("https://www.babelio.com/", wait_until="domcontentloaded")
+    def _process_book(self, page, isbn, title, author, publisher, status_raw, dry_run):
+        # 1. Build Search Queries
+        search_queries = []
+        if isbn:
+            search_queries.append(isbn)
+        if title and author:
+            search_queries.append(f"{title} {author}")
+        if title and publisher and not publisher.strip().isdigit():
+            search_queries.append(f"{title} {publisher}")
+        if title:
+            search_queries.append(title)
 
-        # When logged in, the search bar ID is often 'searchbox'
-        search_selector = "input#searchbox, input#recherche_general"
+        # Ensure unique queries while maintaining order
+        seen = set()
+        search_queries = [q for q in search_queries if not (q in seen or seen.add(q))]
 
-        page.wait_for_selector(search_selector, state="visible", timeout=10000)
-        page.fill(search_selector, isbn)
-        page.press(search_selector, "Enter")
+        found = False
+        for query in search_queries:
+            page.goto("https://www.babelio.com/", wait_until="domcontentloaded")
 
-        # Wait for either the book page (redirect) or search results
-        try:
-            page.wait_for_selector(".livre_top, .list_livre", timeout=8000)
-        except TimeoutError:
-            click.echo(f"[{title}] Not found on Babelio.")
+            # When logged in, the search bar ID is often 'searchbox'
+            search_selector = "input#searchbox, input#recherche_general"
+
+            page.wait_for_selector(search_selector, state="visible", timeout=10000)
+            page.fill(search_selector, query)
+            page.press(search_selector, "Enter")
+
+            # Wait for either the book page (redirect) or search results
+            try:
+                page.wait_for_selector(".livre_top, .list_livre", timeout=8000)
+
+                # If it's a search result page, click the first book
+                if "/resrecherche.php" in page.url:
+                    links = page.locator(".list_livre a.titre_v2").all()
+                    if not links:
+                        continue  # Try next query
+                    links[0].click()
+                    page.wait_for_selector(".livre_top", timeout=8000)
+
+                found = True
+                break  # Successfully found a book page
+            except TimeoutError:
+                continue  # Try next query
+
+        if not found:
+            click.echo(f"[{title}] Not found on Babelio after trying queries: {search_queries}")
             return False, "Not Found"
 
-        # If it's a search result page, click the first book
-        if "/resrecherche.php" in page.url:
-            links = page.locator(".list_livre a.titre_v2").all()
-            if not links:
-                click.echo(f"[{title}] No search results found.")
-                return False, "No Results"
-            links[0].click()
-            page.wait_for_selector(".livre_top")
+        # 2. Extract and display metadata for confirmation
+        # Using locators with short timeouts as the page should already be loaded
+        try:
+            b_title_loc = page.locator('h1[itemprop="name"]')
+            babelio_title = (
+                b_title_loc.inner_text(timeout=2000).strip()
+                if b_title_loc.is_visible()
+                else "Unknown Title"
+            )
 
-        # 2. Duplication check: Is it already in the library?
+            b_author_loc = page.locator('span[itemprop="author"]')
+            babelio_author = (
+                b_author_loc.inner_text(timeout=2000).strip()
+                if b_author_loc.is_visible()
+                else "Unknown Author"
+            )
+        except Exception:
+            babelio_title, babelio_author = "Unknown Title", "Unknown Author"
+
+        click.echo("\n--- Found Match on Babelio ---")
+        click.echo(f"Original: {title} (ISBN: {isbn}) by {author}")
+        click.echo(f"Found:    {babelio_title} by {babelio_author}")
+        click.echo(f"URL:      {page.url}")
+        click.echo("------------------------------")
+
+        if not click.confirm(f"Add '{babelio_title}' to your library?", default=True):
+            click.echo(f"[{title}] Skipped by user.")
+            return False, "User skipped"
+
+        # 3. Duplication check: Is it already in the library?
         # On a book page, the "Ajouter à mes livres" button changes if we already have it.
         # It usually shows the shelf name (e.g. "Lu", "A lire")
         add_btn = page.locator("#btn_ajout_biblio, .btn_ajout_biblio")
