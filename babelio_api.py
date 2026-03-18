@@ -98,9 +98,15 @@ class BabelioBot:
         worksheet.update_cell(row_num, 12, value)
 
     def _login(self, context, page):
-        # 1. Check if we are already logged in
-        page.goto("https://www.babelio.com/", wait_until="domcontentloaded")
-        if page.locator("a[href*='mes_livres'], a[href*='monprofil.php']").first.is_visible():
+        # 1. Check if we are already logged in by trying to access a private page
+        click.echo("Checking session validity...")
+        page.goto("https://www.babelio.com/actualites.php", wait_until="domcontentloaded")
+
+        # If we are logged in, we stay on actualites.php or redirected to another private page.
+        # If we are NOT logged in, we usually get redirected to the homepage or login page.
+        if ("actualites.php" in page.url or "monprofil.php" in page.url) and page.locator(
+            "a[href*='mes_livres.php']"
+        ).first.is_visible():
             click.echo("Already logged in via saved session state.")
             return
 
