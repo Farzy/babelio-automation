@@ -100,7 +100,7 @@ class BabelioBot:
     def _login(self, context, page):
         # 1. Check if we are already logged in
         page.goto("https://www.babelio.com/", wait_until="domcontentloaded")
-        if page.locator("a[href*='mes_livres'], a[href*='profil']").is_visible():
+        if page.locator("a[href*='mes_livres'], a[href*='monprofil.php']").first.is_visible():
             click.echo("Already logged in via saved session state.")
             return
 
