@@ -4,9 +4,11 @@ import click
 from dotenv import load_dotenv
 
 from babelio_api import BabelioBot
+from config import DEFAULT_TTL_SECONDS, load_config
 from gog_client import GogSheetsClient
 
 load_dotenv()
+CFG = load_config()
 
 STATUS_CHOICES = [
     "tous",
@@ -29,14 +31,23 @@ def cli():
 
 
 @cli.command()
-@click.option("--sheet-url", envvar="GOOGLE_SHEET_URL", help="URL or ID of the Google Sheet")
 @click.option(
-    "--account", envvar="GOG_ACCOUNT", help="Google Account email for gog CLI", default=None
+    "--sheet-url",
+    default=CFG.get("google_sheet_url") or None,
+    help="URL or ID of the Google Sheet",
+)
+@click.option(
+    "--account",
+    default=CFG.get("gog_account") or None,
+    help="Google Account email for gog CLI",
 )
 def read_books(sheet_url, account):
     """Read books list from Google Sheets via gog CLI"""
     if not sheet_url:
-        click.echo("Error: GOOGLE_SHEET_URL not set in environment or command line.", err=True)
+        click.echo(
+            "Error: GOOGLE_SHEET_URL not set in config file, environment, or command line.",
+            err=True,
+        )
         return
 
     try:
@@ -60,19 +71,35 @@ def read_books(sheet_url, account):
 
 
 @cli.command()
-@click.option("--sheet-url", envvar="GOOGLE_SHEET_URL", help="URL or ID of the Google Sheet")
 @click.option(
-    "--account", envvar="GOG_ACCOUNT", help="Google Account email for gog CLI", default=None
+    "--sheet-url",
+    default=CFG.get("google_sheet_url") or None,
+    help="URL or ID of the Google Sheet",
 )
-@click.option("--username", envvar="BABELIO_USERNAME", help="Babelio Username", required=True)
-@click.option("--password", envvar="BABELIO_PASSWORD", help="Babelio Password", required=True)
+@click.option(
+    "--account",
+    default=CFG.get("gog_account") or None,
+    help="Google Account email for gog CLI",
+)
+@click.option(
+    "--username",
+    default=CFG.get("babelio_username") or None,
+    help="Babelio Username",
+    required=True,
+)
+@click.option(
+    "--password",
+    default=CFG.get("babelio_password") or None,
+    help="Babelio Password",
+    required=True,
+)
 @click.option("--headless/--no-headless", default=False, help="Run browser in headless mode")
 @click.option("--dry-run/--no-dry-run", default=True, help="Dry run (do not add to library)")
 @click.option("--limit", type=int, default=None, help="Limit number of books to process")
 def sync(sheet_url, account, username, password, headless, dry_run, limit):
     """Sync books from Google Sheets to Babelio"""
     if not sheet_url:
-        click.echo("Error: GOOGLE_SHEET_URL not set.", err=True)
+        click.echo("Error: GOOGLE_SHEET_URL not set in config file or environment.", err=True)
         return
 
     try:
@@ -146,27 +173,64 @@ def sync(sheet_url, account, username, password, headless, dry_run, limit):
     help="Maximum number of books to display (default: 50)",
 )
 @click.option(
+    "--force-refresh",
+    "-f",
+    is_flag=True,
+    default=False,
+    help="Bypass local cache and force refresh from Babelio",
+)
+@click.option(
+    "--cache-ttl",
+    type=int,
+    default=CFG.get("cache_ttl_seconds", DEFAULT_TTL_SECONDS),
+    help="Book cache time-to-live in seconds (default: 3600)",
+)
+@click.option(
     "--json-output",
     is_flag=True,
     default=False,
     help="Output results as JSON",
 )
-@click.option("--username", envvar="BABELIO_USERNAME", help="Babelio Username", required=True)
-@click.option("--password", envvar="BABELIO_PASSWORD", help="Babelio Password", required=True)
+@click.option(
+    "--username",
+    default=CFG.get("babelio_username") or None,
+    help="Babelio Username",
+    required=True,
+)
+@click.option(
+    "--password",
+    default=CFG.get("babelio_password") or None,
+    help="Babelio Password",
+    required=True,
+)
 @click.option("--headless/--no-headless", default=True, help="Run browser in headless mode")
-def books(status, non_possedes, rating, limit, json_output, username, password, headless):
-    """List and filter books from your Babelio library"""
+def books(
+    status,
+    non_possedes,
+    rating,
+    limit,
+    force_refresh,
+    cache_ttl,
+    json_output,
+    username,
+    password,
+    headless,
+):
+    """List and filter books from your Babelio library (uses 1-hour local cache)"""
     try:
         bot = BabelioBot(username, password, headless=headless)
-        click.echo(
-            f"Fetching Babelio books (status='{status}', rating={rating}, "
-            f"non_possedes={non_possedes})..."
-        )
+        if not json_output:
+            click.echo(
+                f"Fetching Babelio books (status='{status}', rating={rating}, "
+                f"non_possedes={non_possedes}, force_refresh={force_refresh})..."
+            )
         book_list = bot.fetch_library_books(
             status_filter=status,
             rating=rating,
             limit=limit,
             non_possedes_only=non_possedes,
+            force_refresh=force_refresh,
+            cache_ttl_seconds=cache_ttl,
         )
 
         if json_output:
@@ -191,6 +255,31 @@ def books(status, non_possedes, rating, limit, json_output, username, password, 
 
     except Exception as e:
         click.echo(f"An error occurred: {e}", err=True)
+
+
+@cli.command("show-config")
+def show_config():
+    """Show active configuration file values and paths."""
+    cfg = load_config()
+    click.echo("\n" + "=" * 50)
+    click.echo("BABELIO AUTOMATION CONFIGURATION")
+    click.echo("=" * 50)
+
+    pass_val = cfg.get("babelio_password", "")
+    masked_pass = "*" * len(pass_val) if pass_val else "<NOT SET>"
+
+    click.echo("Config Directory:  ~/.config/babelio-automation/")
+    click.echo("Config File:       ~/.config/babelio-automation/config.json")
+    click.echo("Cache File:        ~/.config/babelio-automation/books_cache.json")
+    click.echo("Session State:     ~/.config/babelio-automation/session_state.json")
+    click.echo("-" * 50)
+    click.echo(f"Babelio Username:  {cfg.get('babelio_username') or '<NOT SET>'}")
+    click.echo(f"Babelio Password:  {masked_pass}")
+    click.echo(f"Google Sheet URL:  {cfg.get('google_sheet_url') or '<NOT SET>'}")
+    click.echo(f"Gog Account:       {cfg.get('gog_account') or '<DEFAULT>'}")
+    ttl = cfg.get("cache_ttl_seconds", DEFAULT_TTL_SECONDS)
+    click.echo(f"Cache TTL Seconds: {ttl} seconds ({ttl // 60} mins)")
+    click.echo("=" * 50)
 
 
 if __name__ == "__main__":

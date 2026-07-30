@@ -5,17 +5,8 @@ import time
 import click
 from playwright.sync_api import TimeoutError, sync_playwright
 
+from config import DEFAULT_TTL_SECONDS, get_state_file_path, load_books_cache, save_books_cache
 from gog_client import GogSheetsClient
-
-
-def get_state_file_path() -> str:
-    """Get the absolute path for persistent session state storage."""
-    try:
-        config_dir = os.path.expanduser("~/.config/babelio-automation")
-        os.makedirs(config_dir, exist_ok=True)
-        return os.path.join(config_dir, "session_state.json")
-    except Exception:
-        return ".babelio_state.json"
 
 
 class BabelioBot:
@@ -62,13 +53,66 @@ class BabelioBot:
         rating: int | None = None,
         limit: int = 50,
         non_possedes_only: bool = False,
+        force_refresh: bool = False,
+        cache_ttl_seconds: int = DEFAULT_TTL_SECONDS,
     ) -> list[dict[str, str | bool]]:
-        """Fetch user library books from Babelio with status/possession filters."""
-        base_url = self._build_library_url(status_filter, rating)
-        books: list[dict[str, str | bool]] = []
-        filter_non_possedes = non_possedes_only or (
-            status_filter.strip().lower().replace("_", "-") == "non-possedes"
-        )
+        """Fetch user library books with local caching and status/possession filters."""
+        all_books: list[dict[str, str | bool]] | None = None
+
+        if not force_refresh:
+            all_books = load_books_cache(cache_ttl_seconds)
+            if all_books is not None:
+                click.echo(
+                    f"[Cache HIT] Loaded {len(all_books)} books from local cache. "
+                    "Use --force-refresh to update."
+                )
+
+        if all_books is None:
+            click.echo("[Cache MISS/Refresh] Fetching book library from Babelio...")
+            all_books = self._scrape_all_library_books()
+            save_books_cache(all_books)
+            click.echo(f"Cached {len(all_books)} books to local cache.")
+
+        # Apply in-memory filtering
+        status_norm = status_filter.strip().lower().replace("_", "-").replace(" ", "-")
+        filter_non_possedes = non_possedes_only or (status_norm == "non-possedes")
+
+        filtered_books = []
+        for book in all_books:
+            b_status = str(book.get("status", "")).strip()
+            is_pos = bool(book.get("possessed", False))
+            b_rating = book.get("rating")
+
+            # Filter by rating if specified
+            if rating in [1, 2, 3, 4, 5] and b_rating != rating:
+                continue
+
+            # Filter by reading status / shelf
+            if status_norm in ["lus", "lu", "read"] and b_status != "Lu":
+                continue
+            if status_norm in ["a-lire", "à-lire", "to-read"] and b_status != "À lire":
+                continue
+            if status_norm in ["en-cours", "currently-reading"] and b_status != "En cours":
+                continue
+            if status_norm in ["pense-bete", "pense-bête", "bookmark"] and b_status != "Pense-bête":
+                continue
+            if status_norm in ["abandonnes", "abandonnés", "abandoned"] and b_status != "Abandonné":
+                continue
+            if status_norm in ["possedes", "possédés", "owned"] and not is_pos:
+                continue
+
+            # Filter non-possedes
+            if filter_non_possedes and is_pos:
+                continue
+
+            filtered_books.append(book)
+
+        return filtered_books[:limit]
+
+    def _scrape_all_library_books(self) -> list[dict[str, str | bool]]:
+        """Scrape all pages of user library from Babelio."""
+        base_url = "https://www.babelio.com/mabibliotheque.php"
+        all_books: list[dict[str, str | bool]] = []
 
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=self.headless)
@@ -92,12 +136,11 @@ class BabelioBot:
             self._login(context, page)
 
             page_num = 1
-            max_pages = 100
+            max_pages = 200
 
-            while len(books) < limit and page_num <= max_pages:
-                sep = "&" if "?" in base_url else "?"
-                page_url = f"{base_url}{sep}pageN={page_num}"
-                click.echo(f"Fetching Babelio library page {page_num}...")
+            while page_num <= max_pages:
+                page_url = f"{base_url}?pageN={page_num}"
+                click.echo(f"Scraping Babelio library page {page_num}...")
                 page.goto(page_url, wait_until="domcontentloaded")
                 time.sleep(1.5)
 
@@ -111,9 +154,6 @@ class BabelioBot:
                     break
 
                 for row in rows:
-                    if len(books) >= limit:
-                        break
-
                     row_text = row.inner_text().strip()
                     if not row_text or "TITRE | PARU EN" in row_text:
                         continue
@@ -144,16 +184,13 @@ class BabelioBot:
 
                     is_possessed = "Possédé" in row_text or "possede" in row_text.lower()
 
-                    if filter_non_possedes and is_possessed:
-                        continue
-
                     reading_status = "Inconnu"
                     for st in ["Lu", "À lire", "En cours", "Pense-bête", "Abandonné"]:
                         if st in row_text:
                             reading_status = st
                             break
 
-                    books.append(
+                    all_books.append(
                         {
                             "title": title,
                             "author": author,
@@ -170,7 +207,7 @@ class BabelioBot:
                 page_num += 1
 
             browser.close()
-            return books
+            return all_books
 
     def run(
         self,
