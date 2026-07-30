@@ -16,6 +16,143 @@ class BabelioBot:
         self.password = password
         self.headless = headless
 
+    def _build_library_url(self, status: str, rating: int | None = None) -> str:
+        """Build the mabibliotheque.php URL based on status and rating filters."""
+        base_url = "https://www.babelio.com/mabibliotheque.php"
+        params = []
+
+        status_norm = status.strip().lower().replace("_", "-").replace(" ", "-")
+
+        if status_norm in ["lus", "lu", "read"]:
+            params.append("s1=1")
+        elif status_norm in ["a-lire", "à-lire", "to-read"]:
+            params.append("s1=2")
+        elif status_norm in ["en-cours", "currently-reading"]:
+            params.append("s1=0")
+        elif status_norm in ["pense-bete", "pense-bête", "bookmark"]:
+            params.append("s1=3")
+        elif status_norm in ["abandonnes", "abandonnés", "abandoned"]:
+            params.append("s1=4")
+        elif status_norm in ["possedes", "possédés", "owned"]:
+            params.append("s1=5")
+        elif status_norm in ["critiques", "critiqués", "reviewed"]:
+            params.append("s3=10")
+        elif status_norm in ["non-critiques", "non-critiqués", "unreviewed"]:
+            params.append("s3=11")
+        else:
+            params.append("action=toute")
+
+        if rating in [1, 2, 3, 4, 5]:
+            params.append(f"note={rating}")
+
+        return f"{base_url}?{'&'.join(params)}"
+
+    def fetch_library_books(
+        self,
+        status_filter: str = "tous",
+        rating: int | None = None,
+        limit: int = 50,
+        non_possedes_only: bool = False,
+    ) -> list[dict[str, str | bool]]:
+        """Fetch user library books from Babelio with status/possession filters."""
+        base_url = self._build_library_url(status_filter, rating)
+        books: list[dict[str, str | bool]] = []
+        filter_non_possedes = non_possedes_only or (
+            status_filter.strip().lower().replace("_", "-") == "non-possedes"
+        )
+
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=self.headless)
+            user_agent = (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/122.0.0.0 Safari/537.36"
+            )
+
+            context_options = {
+                "user_agent": user_agent,
+                "locale": "fr-FR",
+                "timezone_id": "Europe/Paris",
+            }
+            if os.path.exists(STATE_FILE):
+                context_options["storage_state"] = STATE_FILE
+
+            context = browser.new_context(**context_options)
+            page = context.new_page()
+
+            self._login(context, page)
+
+            page_num = 1
+            while len(books) < limit:
+                page_url = f"{base_url}&pageN={page_num}"
+                click.echo(f"Fetching Babelio library page {page_num}...")
+                page.goto(page_url, wait_until="domcontentloaded")
+                time.sleep(2)
+
+                rows = page.locator(
+                    "tr[id*='ligne_'], tr[id*='livre_'], table.mes_livres_table tr"
+                ).all()
+                if not rows:
+                    rows = page.locator("tr:has(a[href*='/livres/'])").all()
+
+                if not rows:
+                    break
+
+                page_books_found = 0
+                for row in rows:
+                    if len(books) >= limit:
+                        break
+
+                    row_text = row.inner_text().strip()
+                    if not row_text or "TITRE | PARU EN" in row_text:
+                        continue
+
+                    title_link = row.locator("a[href*='/livres/']").first
+                    if title_link.count() == 0:
+                        continue
+
+                    title = title_link.inner_text().strip()
+                    book_url = title_link.get_attribute("href") or ""
+                    if book_url.startswith("/"):
+                        book_url = f"https://www.babelio.com{book_url}"
+
+                    author_link = row.locator("a[href*='/auteur/']").first
+                    author = author_link.inner_text().strip() if author_link.count() > 0 else ""
+
+                    is_possessed = "Possédé" in row_text or "possede" in row_text.lower()
+
+                    if filter_non_possedes and is_possessed:
+                        continue
+
+                    reading_status = "Inconnu"
+                    for st in ["Lu", "À lire", "En cours", "Pense-bête", "Abandonné"]:
+                        if st in row_text:
+                            reading_status = st
+                            break
+
+                    books.append(
+                        {
+                            "title": title,
+                            "author": author,
+                            "status": reading_status,
+                            "possessed": is_possessed,
+                            "url": book_url,
+                        }
+                    )
+                    page_books_found += 1
+
+                if page_books_found == 0 and page_num > 1:
+                    break
+
+                next_page_link = page.locator(f"a[href*='pageN={page_num + 1}']").first
+                if next_page_link.count() == 0:
+                    break
+
+                page_num += 1
+
+            browser.close()
+            return books
+
     def run(
         self,
         books_data: list[list[str]],
@@ -111,7 +248,7 @@ class BabelioBot:
         page.goto("https://www.babelio.com/actualites.php", wait_until="domcontentloaded")
 
         if ("actualites.php" in page.url or "monprofil.php" in page.url) and page.locator(
-            "a[href*='mes_livres.php']"
+            "a[href*='mes_livres.php'], a[href*='mabibliotheque.php']"
         ).first.is_visible():
             click.echo("Already logged in via saved session state.")
             return
@@ -143,7 +280,7 @@ class BabelioBot:
         page.wait_for_selector("input[name='Login' i]", state="visible", timeout=10000)
         page.fill("input[name='Login' i]", self.username)
         page.fill("input[name='Password' i]", self.password)
-        page.click("input[name='sub_btn'], input[type='submit'][value*='onnexion' i]")
+        page.click("input[name='sub_btn'], input[type='submit'][value*='onnexion' i]", force=True)
 
         try:
             page.wait_for_function("window.location.pathname !== '/connection.php'", timeout=10000)
