@@ -7,7 +7,7 @@ A CLI tool for synchronizing personal book libraries from Google Sheets to [Babe
 ## Key Features
 
 - **Automated Authentication**: Log in securely to Babelio with automated cookie consent (SFBX iframe) handling and session persistence (`~/.config/babelio-automation/session_state.json`).
-- **Configuration Management**: Persistent JSON configuration file (`~/.config/babelio-automation/config.json`) for credentials, Google Sheet URLs, and cache settings.
+- **Configuration Management**: Persistent JSON configuration file (`~/.config/babelio-automation/config.json`) as the primary configuration storage for credentials, Google Sheet URLs, and cache settings.
 - **Smart Book Caching**: Caches your complete Babelio book library locally (`~/.config/babelio-automation/books_cache.json`) for a configurable duration (default: **1 hour** / 3600 seconds), making list and filter queries instantaneous and protecting your Babelio account against rate limits or IP blocks.
 - **Cache Bypass / Direct Query**: Includes `--no-cache` (`--bypass-cache` / `--force-refresh`) options to bypass local storage and query the Babelio website directly.
 - **Google Sheets Integration via `gog`**: Uses the `gog` CLI (`/usr/local/bin/gog`) for reading and updating Google Sheets without requiring Google Service Account JSON keys.
@@ -54,15 +54,17 @@ A CLI tool for synchronizing personal book libraries from Google Sheets to [Babe
 
 ## Configuration
 
-Configuration values are resolved in the following priority order:
+Configuration parameters are resolved in the following strict priority order:
 
-1. **CLI Flag / Command Arguments**
-2. **Configuration File**: `~/.config/babelio-automation/config.json`
-3. **Environment Variables / `.env` file**
+1. **CLI Arguments / Options** (overrides all)
+2. **Primary Configuration File**: `~/.config/babelio-automation/config.json` (**Recommended / Primary**)
+3. **Secondary / Fallback Environment Variables**: `.env` file or process environment variables (**Secondary option only**)
 
-### Configuration File (`~/.config/babelio-automation/config.json`)
+---
 
-Create `~/.config/babelio-automation/config.json` (see [`config.example.json`](config.example.json) for reference):
+### 1. Primary Configuration File (`~/.config/babelio-automation/config.json`)
+
+The **primary method** to configure `babelio-automation` is via the user configuration file at `~/.config/babelio-automation/config.json`. See [`config.example.json`](config.example.json) for a template:
 
 ```json
 {
@@ -74,9 +76,14 @@ Create `~/.config/babelio-automation/config.json` (see [`config.example.json`](c
 }
 ```
 
-### Environment Variables (`.env` Fallback)
+---
 
-Alternatively, copy `.env.example` to `.env`:
+### 2. Secondary / Fallback Option (`.env` file)
+
+> [!NOTE]
+> `.env` support is provided as a **secondary fallback option** for backwards compatibility or CI environments. If `~/.config/babelio-automation/config.json` exists, settings defined in `config.json` take precedence.
+
+To use `.env` as a fallback, copy `.env.example` to `.env`:
 
 ```env
 GOOGLE_SHEET_URL=https://docs.google.com/spreadsheets/d/YOUR_SHEET_ID/edit
@@ -84,9 +91,11 @@ BABELIO_USERNAME=your_email@example.com
 BABELIO_PASSWORD=your_babelio_password
 ```
 
+---
+
 ### Inspecting Active Configuration
 
-View your active configuration paths and settings (with password masked):
+To view your active configuration paths and effective settings (with password masked):
 
 ```bash
 uv run babelio-cli show-config
