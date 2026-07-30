@@ -1,12 +1,11 @@
 [project]
-name = "babelio-sync"
+name = "babelio-automation"
 version = "0.1.0"
-description = "Add your description here"
+description = "Automate book synchronization from Google Sheets to Babelio using Playwright and gog CLI"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "click>=8.3.1",
-    "gspread>=6.2.1",
     "playwright>=1.58.0",
     "python-dotenv>=1.2.2",
 ]
@@ -15,8 +14,14 @@ dependencies = [
 dev = [
     "detect-secrets>=1.5.0",
     "pre-commit>=4.5.1",
+    "pytest>=8.0.0",
     "ruff>=0.15.6",
 ]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+pythonpath = ["."]
 
 [tool.ruff]
 line-length = 100
@@ -36,7 +41,13 @@ select = [
     "TCH", # flake8-type-checking
     "S",   # flake8-bandit (security checks)
 ]
-ignore = []
+ignore = [
+    "S603", # subprocess call un-trusted input
+    "S404", # import subprocess
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -46,6 +57,4 @@ line-ending = "auto"
 
 [tool.bandit]
 exclude_dirs = ["tests", "venv", ".venv", "__pycache__"]
-# B101: assert_used (often used in tests)
-# B601: shell_injection_shell_true (be careful if you need shell=True)
-skips = ["B101"]
+skips = ["B101", "B404", "B603"]
