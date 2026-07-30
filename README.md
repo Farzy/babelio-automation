@@ -1,4 +1,4 @@
-# Babelio Automation
+# Babelio Automation (v0.2.0)
 
 A CLI tool for synchronizing personal book libraries from Google Sheets to [Babelio](https://www.babelio.com/). Since Babelio does not offer a public API, this project uses **Playwright** browser automation alongside the **`gog` CLI** for Google Sheets API integration.
 
@@ -36,7 +36,7 @@ A CLI tool for synchronizing personal book libraries from Google Sheets to [Babe
    cd babelio-automation
    ```
 
-2. **Install dependencies**:
+2. **Install dependencies and binary entrypoint**:
    ```bash
    uv sync
    ```
@@ -104,13 +104,15 @@ The tool expects the Google Sheet (`Sheet1`) to contain headers on the first row
 
 ---
 
-## CLI Usage
+## CLI Usage (`babelio-cli`)
+
+The tool exposes the executable entrypoint **`babelio-cli`**.
 
 ### Read & Preview Google Sheet Data
 Test Google Sheets connection via `gog` and inspect the first few rows:
 
 ```bash
-uv run python main.py read-books
+uv run babelio-cli read-books
 ```
 
 ### Synchronize Books to Babelio
@@ -119,27 +121,27 @@ uv run python main.py read-books
 Simulates sync operations without making modifications to your Babelio account or Google Sheet:
 
 ```bash
-uv run python main.py sync --limit 5 --dry-run
+uv run babelio-cli sync --limit 5 --dry-run
 ```
 
 #### Live Sync (Interactive Mode)
 Runs live automation with visible browser window so you can confirm book matches:
 
 ```bash
-uv run python main.py sync --no-headless --no-dry-run
+uv run babelio-cli sync --no-headless --no-dry-run
 ```
 
 #### Headless Execution
 Runs in the background without opening a browser window:
 
 ```bash
-uv run python main.py sync --headless --no-dry-run
+uv run babelio-cli sync --headless --no-dry-run
 ```
 
 #### Command Options Reference
 
 ```bash
-uv run python main.py sync --help
+uv run babelio-cli sync --help
 ```
 
 - `--sheet-url TEXT`: Overrides `GOOGLE_SHEET_URL` environment variable.
@@ -149,6 +151,22 @@ uv run python main.py sync --help
 - `--headless / --no-headless`: Run browser in headless mode (default: `--no-headless`).
 - `--dry-run / --no-dry-run`: Enable/disable dry run mode (default: `--dry-run`).
 - `--limit INTEGER`: Limit number of books to process in one run.
+
+---
+
+## Global Tool Installation (Optional)
+
+You can install `babelio-cli` globally as a standalone command using `uv tool`:
+
+```bash
+uv tool install .
+```
+
+After installation, invoke directly from anywhere:
+
+```bash
+babelio-cli --help
+```
 
 ---
 
@@ -184,13 +202,13 @@ uv run pre-commit install
 
 ```
 babelio-automation/
-├── main.py                 # Click CLI commands entrypoint
+├── main.py                 # Click CLI commands entrypoint (babelio-cli)
 ├── babelio_api.py          # Playwright automation & Babelio sync bot
 ├── gog_client.py           # GogSheetsClient wrapper for gog CLI
 ├── tests/                  # Pytest unit test suite
 │   ├── test_gog_client.py
 │   └── test_babelio_api.py
-├── pyproject.toml          # Dependencies and project config (uv)
+├── pyproject.toml          # Dependencies, version 0.2.0 & babelio-cli script
 ├── uv.lock                 # Locked dependency tree
 ├── .env.example            # Template for environment variables
 ├── .pre-commit-config.yaml # Pre-commit linting configuration
