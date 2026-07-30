@@ -5,16 +5,26 @@ import time
 import click
 from playwright.sync_api import TimeoutError, sync_playwright
 
+from gog_client import GogSheetsClient
+
 STATE_FILE = ".babelio_state.json"
 
 
 class BabelioBot:
-    def __init__(self, username, password, headless=False):
+    def __init__(self, username: str, password: str, headless: bool = False):
         self.username = username
         self.password = password
         self.headless = headless
 
-    def run(self, books_data, worksheet, dry_run=True, limit=None):
+    def run(
+        self,
+        books_data: list[list[str]],
+        sheet_url: str,
+        gog_client: GogSheetsClient,
+        dry_run: bool = True,
+        limit: int | None = None,
+    ) -> dict[str, list]:
+        """Run Babelio synchronization for books data extracted from Google Sheets."""
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=self.headless)
             user_agent = (
@@ -38,32 +48,29 @@ class BabelioBot:
             self._login(context, page)
 
             count = 0
-            results = {"success": [], "skipped": [], "failed": []}
+            results: dict[str, list] = {"success": [], "skipped": [], "failed": []}
 
             for index, row in enumerate(books_data):
                 if limit and count >= limit:
                     break
 
-                # Assuming row format based on headers print:
-                # [0] Title, [5] Author, [7] Publisher, [8] Status, [9] ISBN, [11] Babelio
                 try:
                     title = html.unescape(row[0])
                     author = html.unescape(row[5]) if len(row) > 5 else ""
                     publisher = html.unescape(row[7]) if len(row) > 7 else ""
-                    status_raw = row[8]
-                    isbn = row[9]
-                    babelio_synced = row[11].strip().upper()
+                    status_raw = row[8] if len(row) > 8 else ""
+                    isbn = row[9] if len(row) > 9 else ""
+                    babelio_synced = row[11].strip().upper() if len(row) > 11 else ""
                 except IndexError:
-                    continue  # Malformed row
+                    continue
 
-                # Skip header row if present
                 if title.lower() == "title" and isbn.lower() == "isbn":
                     continue
 
-                sheet_row_num = index + 2  # Google Sheet rows are 1-based, and +1 for header
+                sheet_row_num = index + 2
 
                 if babelio_synced in ["OUI", "MAYBE"]:
-                    continue  # Already synced or marked as maybe
+                    continue
 
                 click.echo(f"\nProcessing: {title} (ISBN: {isbn})")
 
@@ -74,13 +81,12 @@ class BabelioBot:
                     if success:
                         if reason == "Already in library":
                             results["skipped"].append((isbn, title))
-                            # Update Google Sheet anyway so we don't process it again
-                            if not dry_run:
-                                self._update_sheet(worksheet, sheet_row_num, "OUI")
+                            if not dry_run and gog_client:
+                                self._update_sheet(gog_client, sheet_url, sheet_row_num, "OUI")
                         else:
                             results["success"].append((isbn, title))
-                            if not dry_run:
-                                self._update_sheet(worksheet, sheet_row_num, "Maybe")
+                            if not dry_run and gog_client:
+                                self._update_sheet(gog_client, sheet_url, sheet_row_num, "Maybe")
                     else:
                         results["failed"].append((isbn, title, reason))
                 except Exception as e:
@@ -88,22 +94,22 @@ class BabelioBot:
                     results["failed"].append((isbn, title, str(e)))
 
                 count += 1
-                time.sleep(2)  # Grace period
+                time.sleep(2)
 
             browser.close()
             return results
 
-    def _update_sheet(self, worksheet, row_num, value):
-        # Column 'L' is index 12 in 1-based (Babelio column)
-        worksheet.update_cell(row_num, 12, value)
+    def _update_sheet(
+        self, gog_client: GogSheetsClient, sheet_url: str, row_num: int, value: str
+    ) -> None:
+        """Update column 'L' (index 12) in Google Sheet using gog CLI."""
+        gog_client.update_cell(sheet_url, row_num, 12, value)
 
-    def _login(self, context, page):
-        # 1. Check if we are already logged in by trying to access a private page
+    def _login(self, context, page) -> None:
+        """Check session validity or authenticate with Babelio."""
         click.echo("Checking session validity...")
         page.goto("https://www.babelio.com/actualites.php", wait_until="domcontentloaded")
 
-        # If we are logged in, we stay on actualites.php or redirected to another private page.
-        # If we are NOT logged in, we usually get redirected to the homepage or login page.
         if ("actualites.php" in page.url or "monprofil.php" in page.url) and page.locator(
             "a[href*='mes_livres.php']"
         ).first.is_visible():
@@ -113,16 +119,12 @@ class BabelioBot:
         click.echo("Session expired or missing. Logging in...")
         page.goto("https://www.babelio.com/connection.php")
 
-        # Handle Cookies Banner (SFBX Consent Manager iframe)
         try:
             click.echo("Waiting for potential cookies banner...")
-            # Button text can vary slightly depending on the exact version of the banner
             btn_selectors = (
                 'button.app-agree-button, button:has-text("Tout Accepter"), '
                 'button:has-text("Tout accepter"), button:has-text("Accepter tout")'
             )
-
-            # The iframe title can change based on locale or SFBX updates
             iframe_selector = (
                 'iframe[title="Consent Manager"], '
                 'iframe[title="Consent window"], '
@@ -132,41 +134,39 @@ class BabelioBot:
 
             consent_frame = page.frame_locator(iframe_selector)
             accept_btn = consent_frame.locator(btn_selectors).first
-
-            # Use force=True because visibility check sometimes fails for this banner
             accept_btn.click(force=True, timeout=10000)
-
             click.echo("Cookies banner accepted.")
-            time.sleep(2)  # delay for banner to disappear and DOM to settle
+            time.sleep(2)
         except Exception:
             click.echo("No cookies banner found or timed out. Proceeding to login.")
 
-        # Wait for the login input to be visible and interactable before filling
         page.wait_for_selector("input[name='Login' i]", state="visible", timeout=10000)
         page.fill("input[name='Login' i]", self.username)
         page.fill("input[name='Password' i]", self.password)
         page.click("input[name='sub_btn'], input[type='submit'][value*='onnexion' i]")
 
         try:
-            # Wait for the browser to redirect away from the login page
             page.wait_for_function("window.location.pathname !== '/connection.php'", timeout=10000)
             page.wait_for_load_state("domcontentloaded")
             click.echo("Successfully logged in.")
-
-            # Save the authentication state
             context.storage_state(path=STATE_FILE)
             click.echo("Session state saved.")
         except TimeoutError as err:
             page.screenshot(path="login_timeout.png")
-            click.echo(f"Current page URL: {page.url}")
-            click.echo(f"Page title: {page.title()}")
-            click.echo(f"Body text snippet: {page.inner_text('body')[:500]}")
-            raise Exception(
-                "Failed to login to Babelio. Check credentials or CAPTCHA presence."
-            ) from err
+            err_msg = "Failed to login to Babelio. Check credentials or CAPTCHA presence."
+            raise Exception(err_msg) from err
 
-    def _process_book(self, page, isbn, title, author, publisher, status_raw, dry_run):
-        # 1. Build Search Queries
+    def _process_book(
+        self,
+        page,
+        isbn: str,
+        title: str,
+        author: str,
+        publisher: str,
+        status_raw: str,
+        dry_run: bool,
+    ) -> tuple[bool, str]:
+        """Search and add book to Babelio library."""
         search_queries = []
         if isbn:
             search_queries.append(isbn)
@@ -177,44 +177,36 @@ class BabelioBot:
         if title:
             search_queries.append(title)
 
-        # Ensure unique queries while maintaining order
         seen = set()
         search_queries = [q for q in search_queries if not (q in seen or seen.add(q))]
 
         found = False
         for query in search_queries:
             page.goto("https://www.babelio.com/", wait_until="domcontentloaded")
-
-            # When logged in, the search bar ID is often 'searchbox'
             search_selector = "input#searchbox, input#recherche_general"
 
             page.wait_for_selector(search_selector, state="visible", timeout=10000)
             page.fill(search_selector, query)
             page.press(search_selector, "Enter")
 
-            # Wait for either the book page (redirect) or search results
             try:
                 page.wait_for_selector(".livre_top, .list_livre", timeout=8000)
-
-                # If it's a search result page, click the first book
                 if "/resrecherche.php" in page.url:
                     links = page.locator(".list_livre a.titre_v2").all()
                     if not links:
-                        continue  # Try next query
+                        continue
                     links[0].click()
                     page.wait_for_selector(".livre_top", timeout=8000)
 
                 found = True
-                break  # Successfully found a book page
+                break
             except TimeoutError:
-                continue  # Try next query
+                continue
 
         if not found:
             click.echo(f"[{title}] Not found on Babelio after trying queries: {search_queries}")
             return False, "Not Found"
 
-        # 2. Extract and display metadata for confirmation
-        # Using locators with short timeouts as the page should already be loaded
         try:
             b_title_loc = page.locator('h1[itemprop="name"]')
             babelio_title = (
@@ -242,9 +234,6 @@ class BabelioBot:
             click.echo(f"[{title}] Skipped by user.")
             return False, "User skipped"
 
-        # 3. Duplication check: Is it already in the library?
-        # On a book page, the "Ajouter à mes livres" button changes if we already have it.
-        # It usually shows the shelf name (e.g. "Lu", "A lire")
         add_btn = page.locator("#btn_ajout_biblio, .btn_ajout_biblio")
         if not add_btn.is_visible():
             add_btn = page.locator("a[href*='mes_livres']")
@@ -255,23 +244,19 @@ class BabelioBot:
                 click.echo(f"[{title}] Already in library ({add_btn_text}). Skipping.")
                 return True, "Already in library"
 
-        # 3. Execution (Add to library)
         shelf = self._map_status(status_raw)
 
         if dry_run:
             click.echo(f"[{title}] DRY RUN: Would add to library with status '{shelf}'.")
             return True, "Added (Dry Run)"
 
-        # Click the 'Ajouter' button (this opens a modal usually)
         add_btn.click()
         try:
-            page.wait_for_selector("#id_status", timeout=5000)  # Wait for the dropdown in the modal
+            page.wait_for_selector("#id_status", timeout=5000)
         except TimeoutError:
             click.echo(f"[{title}] Could not open add to library modal. Skipping.")
             return False, "Modal Error"
 
-        # Select the status
-        # Babelio status values: 1=Lu, 2=A lire, 3=En cours
         status_val = (
             "1"
             if shelf == "Lu"
@@ -282,17 +267,13 @@ class BabelioBot:
             else "1"
         )
         page.select_option("#id_status", status_val)
-
-        # Save
         page.click("#btn_ajout_livre_valider")
-
-        # Wait for modal to close or toast to appear
         time.sleep(1)
         click.echo(f"[{title}] Added to library with status '{shelf}'.")
         return True, "Added"
 
-    def _map_status(self, status):
-        """Map Google Sheet status to Babelio shelves"""
+    def _map_status(self, status: str) -> str:
+        """Map Google Sheet status string to Babelio shelf name."""
         status = status.strip().lower()
         if status in ["read", "lu"]:
             return "Lu"
@@ -300,4 +281,4 @@ class BabelioBot:
             return "À lire"
         elif status in ["currently reading", "en cours"]:
             return "En cours"
-        return "Lu"  # Default
+        return "Lu"
