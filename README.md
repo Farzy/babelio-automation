@@ -159,10 +159,14 @@ uv run babelio-cli sync --help
 You can install `babelio-cli` globally as a standalone command using `uv tool`:
 
 ```bash
+# Standard installation
 uv tool install .
+
+# Editable installation (changes in source code reflect immediately)
+uv tool install --editable .
 ```
 
-After installation, invoke directly from anywhere:
+After installation, invoke `babelio-cli` directly from anywhere in your terminal:
 
 ```bash
 babelio-cli --help
