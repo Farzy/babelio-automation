@@ -48,13 +48,13 @@ class BabelioBot:
             params.append("s3=10")
         elif status_norm in ["non-critiques", "non-critiqués", "unreviewed"]:
             params.append("s3=11")
-        else:
-            params.append("action=toute")
 
         if rating in [1, 2, 3, 4, 5]:
             params.append(f"note={rating}")
 
-        return f"{base_url}?{'&'.join(params)}"
+        if params:
+            return f"{base_url}?{'&'.join(params)}"
+        return base_url
 
     def fetch_library_books(
         self,
@@ -92,22 +92,24 @@ class BabelioBot:
             self._login(context, page)
 
             page_num = 1
-            while len(books) < limit:
-                page_url = f"{base_url}&pageN={page_num}"
+            max_pages = 100
+
+            while len(books) < limit and page_num <= max_pages:
+                sep = "&" if "?" in base_url else "?"
+                page_url = f"{base_url}{sep}pageN={page_num}"
                 click.echo(f"Fetching Babelio library page {page_num}...")
                 page.goto(page_url, wait_until="domcontentloaded")
-                time.sleep(2)
+                time.sleep(1.5)
 
-                rows = page.locator(
-                    "tr[id*='ligne_'], tr[id*='livre_'], table.mes_livres_table tr"
-                ).all()
+                rows = page.locator("tr:has(a[href*='/livres/'])").all()
                 if not rows:
-                    rows = page.locator("tr:has(a[href*='/livres/'])").all()
+                    rows = page.locator(
+                        "tr[id*='ligne_'], tr[id*='livre_'], table.mes_livres_table tr"
+                    ).all()
 
                 if not rows:
                     break
 
-                page_books_found = 0
                 for row in rows:
                     if len(books) >= limit:
                         break
@@ -116,12 +118,24 @@ class BabelioBot:
                     if not row_text or "TITRE | PARU EN" in row_text:
                         continue
 
-                    title_link = row.locator("a[href*='/livres/']").first
-                    if title_link.count() == 0:
+                    title_links = row.locator("a[href*='/livres/']").all()
+                    title = ""
+                    book_url = ""
+                    for t_link in title_links:
+                        txt = t_link.inner_text().strip()
+                        if (
+                            txt
+                            and not txt.startswith("http")
+                            and "critique" not in txt.lower()
+                            and "citation" not in txt.lower()
+                        ):
+                            title = txt
+                            book_url = t_link.get_attribute("href") or ""
+                            break
+
+                    if not title:
                         continue
 
-                    title = title_link.inner_text().strip()
-                    book_url = title_link.get_attribute("href") or ""
                     if book_url.startswith("/"):
                         book_url = f"https://www.babelio.com{book_url}"
 
@@ -148,10 +162,6 @@ class BabelioBot:
                             "url": book_url,
                         }
                     )
-                    page_books_found += 1
-
-                if page_books_found == 0 and page_num > 1:
-                    break
 
                 next_page_link = page.locator(f"a[href*='pageN={page_num + 1}']").first
                 if next_page_link.count() == 0:
