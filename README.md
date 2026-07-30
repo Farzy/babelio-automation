@@ -6,7 +6,9 @@ A CLI tool for synchronizing personal book libraries from Google Sheets to [Babe
 
 ## Key Features
 
-- **Automated Authentication**: Log in securely to Babelio with automated cookie consent (SFBX iframe) handling and session persistence (`.babelio_state.json`).
+- **Automated Authentication**: Log in securely to Babelio with automated cookie consent (SFBX iframe) handling and session persistence (`~/.config/babelio-automation/session_state.json`).
+- **Configuration Management**: Persistent JSON configuration file (`~/.config/babelio-automation/config.json`) for credentials, Google Sheet URLs, and cache settings.
+- **Smart Book Caching**: Caches your complete Babelio book library locally (`~/.config/babelio-automation/books_cache.json`) for a configurable duration (default: **1 hour** / 3600 seconds), making list and filter queries instantaneous and protecting your Babelio account against rate limits or IP blocks.
 - **Google Sheets Integration via `gog`**: Uses the `gog` CLI (`/usr/local/bin/gog`) for reading and updating Google Sheets without requiring Google Service Account JSON keys.
 - **Babelio Library Listing & Filtering**: View and search your Babelio books using built-in or custom status filters:
   - **`lus`**: Books on your Read shelf.
@@ -18,8 +20,7 @@ A CLI tool for synchronizing personal book libraries from Google Sheets to [Babe
   - **`non-possedes`**: Books **NOT** marked as Possessed (client-side evaluation missing from web interface).
   - **`critiques` / `non-critiques`**: Filter by review status.
   - **`--non-possedes` flag**: Combine with any status (e.g. `--status a-lire --non-possedes` to find unowned books on your "To Read" shelf).
-- **Multi-Stage Book Search**: Intelligent fallback search strategy: `ISBN` $\rightarrow$ `Title + Author` $\rightarrow$ `Title + Publisher` $\rightarrow$ `Title`.
-- **Safe Execution Options**: Full support for `--dry-run`, `--headless` / `--no-headless`, `--json-output`, and `--limit`.
+  - **`--force-refresh` / `-f`**: Bypass local cache and force fresh scraping from Babelio.
 
 ---
 
@@ -53,23 +54,42 @@ A CLI tool for synchronizing personal book libraries from Google Sheets to [Babe
 
 ## Configuration
 
-### Environment Variables (`.env`)
+Configuration values are resolved in the following priority order:
 
-Copy `.env.example` to `.env` and fill in your credentials:
+1. **CLI Flag / Command Arguments**
+2. **Configuration File**: `~/.config/babelio-automation/config.json`
+3. **Environment Variables / `.env` file**
 
-```bash
-cp .env.example .env
+### Configuration File (`~/.config/babelio-automation/config.json`)
+
+Create `~/.config/babelio-automation/config.json` (see [`config.example.json`](config.example.json) for reference):
+
+```json
+{
+  "babelio_username": "your_email@example.com",
+  "babelio_password": "<SECRET_KEY>",
+  "google_sheet_url": "https://docs.google.com/spreadsheets/d/YOUR_SPREADSHEET_ID/edit",
+  "gog_account": "your_google_account@example.com",
+  "cache_ttl_seconds": 3600
+}
 ```
 
-Edit `.env`:
+### Environment Variables (`.env` Fallback)
+
+Alternatively, copy `.env.example` to `.env`:
 
 ```env
-# Google Sheet URL or ID
 GOOGLE_SHEET_URL=https://docs.google.com/spreadsheets/d/YOUR_SHEET_ID/edit
-
-# Babelio Credentials
 BABELIO_USERNAME=your_email@example.com
 BABELIO_PASSWORD=your_babelio_password
+```
+
+### Inspecting Active Configuration
+
+View your active configuration paths and settings (with password masked):
+
+```bash
+uv run babelio-cli show-config
 ```
 
 ---
@@ -78,11 +98,14 @@ BABELIO_PASSWORD=your_babelio_password
 
 ### 1. List & Filter Babelio Library Books (`books`)
 
-Display books in your Babelio library filtered by shelf status, possession, or rating:
+Display books in your Babelio library instantly using local 1-hour cache:
 
 ```bash
-# List books that are NOT possessed (custom client-side filter)
+# List books that are NOT possessed (instant local cache hit)
 uv run babelio-cli books --status non-possedes --limit 20
+
+# Force refresh library from Babelio (bypass local cache)
+uv run babelio-cli books --status non-possedes --force-refresh
 
 # List unowned books on your "To Read" shelf
 uv run babelio-cli books --status a-lire --non-possedes

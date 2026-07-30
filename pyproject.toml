@@ -18,7 +18,7 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-py-modules = ["main", "babelio_api", "gog_client"]
+py-modules = ["main", "babelio_api", "gog_client", "config"]
 
 [tool.uv]
 package = true
