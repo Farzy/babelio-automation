@@ -9,6 +9,7 @@ A CLI tool for synchronizing personal book libraries from Google Sheets to [Babe
 - **Automated Authentication**: Log in securely to Babelio with automated cookie consent (SFBX iframe) handling and session persistence (`~/.config/babelio-automation/session_state.json`).
 - **Configuration Management**: Persistent JSON configuration file (`~/.config/babelio-automation/config.json`) for credentials, Google Sheet URLs, and cache settings.
 - **Smart Book Caching**: Caches your complete Babelio book library locally (`~/.config/babelio-automation/books_cache.json`) for a configurable duration (default: **1 hour** / 3600 seconds), making list and filter queries instantaneous and protecting your Babelio account against rate limits or IP blocks.
+- **Cache Bypass / Direct Query**: Includes `--no-cache` (`--bypass-cache` / `--force-refresh`) options to bypass local storage and query the Babelio website directly.
 - **Google Sheets Integration via `gog`**: Uses the `gog` CLI (`/usr/local/bin/gog`) for reading and updating Google Sheets without requiring Google Service Account JSON keys.
 - **Babelio Library Listing & Filtering**: View and search your Babelio books using built-in or custom status filters:
   - **`lus`**: Books on your Read shelf.
@@ -20,7 +21,6 @@ A CLI tool for synchronizing personal book libraries from Google Sheets to [Babe
   - **`non-possedes`**: Books **NOT** marked as Possessed (client-side evaluation missing from web interface).
   - **`critiques` / `non-critiques`**: Filter by review status.
   - **`--non-possedes` flag**: Combine with any status (e.g. `--status a-lire --non-possedes` to find unowned books on your "To Read" shelf).
-  - **`--force-refresh` / `-f`**: Bypass local cache and force fresh scraping from Babelio.
 
 ---
 
@@ -98,13 +98,16 @@ uv run babelio-cli show-config
 
 ### 1. List & Filter Babelio Library Books (`books`)
 
-Display books in your Babelio library instantly using local 1-hour cache:
+Display books in your Babelio library instantly using local 1-hour cache or query directly:
 
 ```bash
 # List books that are NOT possessed (instant local cache hit)
 uv run babelio-cli books --status non-possedes --limit 20
 
-# Force refresh library from Babelio (bypass local cache)
+# Query Babelio website directly (bypass local cache)
+uv run babelio-cli books --status non-possedes --no-cache
+
+# Force refresh library cache
 uv run babelio-cli books --status non-possedes --force-refresh
 
 # List unowned books on your "To Read" shelf
@@ -116,6 +119,11 @@ uv run babelio-cli books --status pense-bete
 # List 5-star rated books with JSON output
 uv run babelio-cli books --rating 5 --json-output
 ```
+
+#### Cache Control Flags
+- `--no-cache` / `--bypass-cache`: Bypass book cache and query Babelio website directly.
+- `--force-refresh` / `-f`: Bypass local cache and force refresh/update the cache file.
+- `--cache-ttl <SECONDS>`: Override cache time-to-live period (default: 3,600s / 1h).
 
 #### Status Filter Options (`--status` / `-s`)
 - `tous`: All library books (default)
@@ -168,7 +176,7 @@ uv tool install --editable .
 Invoke from anywhere:
 
 ```bash
-babelio-cli books --status non-possedes
+babelio-cli books --status non-possedes --no-cache
 ```
 
 ---
