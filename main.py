@@ -177,7 +177,15 @@ def sync(sheet_url, account, username, password, headless, dry_run, limit):
     "-f",
     is_flag=True,
     default=False,
-    help="Bypass local cache and force refresh from Babelio",
+    help="Bypass local cache and force refresh from Babelio website",
+)
+@click.option(
+    "--no-cache",
+    "--bypass-cache",
+    "no_cache",
+    is_flag=True,
+    default=False,
+    help="Bypass book cache and query Babelio website directly",
 )
 @click.option(
     "--cache-ttl",
@@ -210,6 +218,7 @@ def books(
     rating,
     limit,
     force_refresh,
+    no_cache,
     cache_ttl,
     json_output,
     username,
@@ -218,18 +227,19 @@ def books(
 ):
     """List and filter books from your Babelio library (uses 1-hour local cache)"""
     try:
+        bypass = force_refresh or no_cache
         bot = BabelioBot(username, password, headless=headless)
         if not json_output:
             click.echo(
                 f"Fetching Babelio books (status='{status}', rating={rating}, "
-                f"non_possedes={non_possedes}, force_refresh={force_refresh})..."
+                f"non_possedes={non_possedes}, bypass_cache={bypass})..."
             )
         book_list = bot.fetch_library_books(
             status_filter=status,
             rating=rating,
             limit=limit,
             non_possedes_only=non_possedes,
-            force_refresh=force_refresh,
+            force_refresh=bypass,
             cache_ttl_seconds=cache_ttl,
         )
 
