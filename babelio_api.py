@@ -7,7 +7,15 @@ from playwright.sync_api import TimeoutError, sync_playwright
 
 from gog_client import GogSheetsClient
 
-STATE_FILE = ".babelio_state.json"
+
+def get_state_file_path() -> str:
+    """Get the absolute path for persistent session state storage."""
+    try:
+        config_dir = os.path.expanduser("~/.config/babelio-automation")
+        os.makedirs(config_dir, exist_ok=True)
+        return os.path.join(config_dir, "session_state.json")
+    except Exception:
+        return ".babelio_state.json"
 
 
 class BabelioBot:
@@ -15,6 +23,7 @@ class BabelioBot:
         self.username = username
         self.password = password
         self.headless = headless
+        self.state_file = get_state_file_path()
 
     def _build_library_url(self, status: str, rating: int | None = None) -> str:
         """Build the mabibliotheque.php URL based on status and rating filters."""
@@ -74,8 +83,8 @@ class BabelioBot:
                 "locale": "fr-FR",
                 "timezone_id": "Europe/Paris",
             }
-            if os.path.exists(STATE_FILE):
-                context_options["storage_state"] = STATE_FILE
+            if os.path.exists(self.state_file):
+                context_options["storage_state"] = self.state_file
 
             context = browser.new_context(**context_options)
             page = context.new_page()
@@ -175,8 +184,8 @@ class BabelioBot:
                 "locale": "fr-FR",
                 "timezone_id": "Europe/Paris",
             }
-            if os.path.exists(STATE_FILE):
-                context_options["storage_state"] = STATE_FILE
+            if os.path.exists(self.state_file):
+                context_options["storage_state"] = self.state_file
 
             context = browser.new_context(**context_options)
             page = context.new_page()
@@ -247,9 +256,10 @@ class BabelioBot:
         click.echo("Checking session validity...")
         page.goto("https://www.babelio.com/actualites.php", wait_until="domcontentloaded")
 
-        if ("actualites.php" in page.url or "monprofil.php" in page.url) and page.locator(
-            "a[href*='mes_livres.php'], a[href*='mabibliotheque.php']"
-        ).first.is_visible():
+        if "connection.php" not in page.url and (
+            page.locator("input#hid_user").count() > 0
+            or page.locator("a[href*='closeSession=1']").count() > 0
+        ):
             click.echo("Already logged in via saved session state.")
             return
 
@@ -286,8 +296,8 @@ class BabelioBot:
             page.wait_for_function("window.location.pathname !== '/connection.php'", timeout=10000)
             page.wait_for_load_state("domcontentloaded")
             click.echo("Successfully logged in.")
-            context.storage_state(path=STATE_FILE)
-            click.echo("Session state saved.")
+            context.storage_state(path=self.state_file)
+            click.echo(f"Session state saved to {self.state_file}.")
         except TimeoutError as err:
             page.screenshot(path="login_timeout.png")
             err_msg = "Failed to login to Babelio. Check credentials or CAPTCHA presence."
