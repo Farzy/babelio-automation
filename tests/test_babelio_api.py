@@ -25,6 +25,6 @@ def test_build_library_url():
     assert "s1=5" in bot._build_library_url("possedes")
     assert "s3=10" in bot._build_library_url("critiques")
     assert "s3=11" in bot._build_library_url("non-critiques")
-    assert "action=toute" in bot._build_library_url("tous")
-    assert "action=toute" in bot._build_library_url("non-possedes")
+    assert bot._build_library_url("tous") == "https://www.babelio.com/mabibliotheque.php"
+    assert bot._build_library_url("non-possedes") == "https://www.babelio.com/mabibliotheque.php"
     assert "note=5" in bot._build_library_url("lus", rating=5)
