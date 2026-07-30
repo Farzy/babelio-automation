@@ -117,7 +117,7 @@ def sync(sheet_url, account, username, password, headless, dry_run, limit):
         click.echo(f"An error occurred: {e}", err=True)
 
 
-@cli.command("babelio-books")
+@cli.command("books")
 @click.option(
     "--status",
     "-s",
@@ -154,7 +154,7 @@ def sync(sheet_url, account, username, password, headless, dry_run, limit):
 @click.option("--username", envvar="BABELIO_USERNAME", help="Babelio Username", required=True)
 @click.option("--password", envvar="BABELIO_PASSWORD", help="Babelio Password", required=True)
 @click.option("--headless/--no-headless", default=True, help="Run browser in headless mode")
-def babelio_books(status, non_possedes, rating, limit, json_output, username, password, headless):
+def books(status, non_possedes, rating, limit, json_output, username, password, headless):
     """List and filter books from your Babelio library"""
     try:
         bot = BabelioBot(username, password, headless=headless)
@@ -162,7 +162,7 @@ def babelio_books(status, non_possedes, rating, limit, json_output, username, pa
             f"Fetching Babelio books (status='{status}', rating={rating}, "
             f"non_possedes={non_possedes})..."
         )
-        books = bot.fetch_library_books(
+        book_list = bot.fetch_library_books(
             status_filter=status,
             rating=rating,
             limit=limit,
@@ -170,18 +170,18 @@ def babelio_books(status, non_possedes, rating, limit, json_output, username, pa
         )
 
         if json_output:
-            click.echo(json.dumps(books, indent=2, ensure_ascii=False))
+            click.echo(json.dumps(book_list, indent=2, ensure_ascii=False))
             return
 
         click.echo("\n" + "=" * 60)
-        click.echo(f"BABELIO BOOKS LIST ({len(books)} found)")
+        click.echo(f"BABELIO BOOKS LIST ({len(book_list)} found)")
         click.echo("=" * 60)
 
-        if not books:
+        if not book_list:
             click.echo("No books match the specified filters.")
             return
 
-        for idx, book in enumerate(books, 1):
+        for idx, book in enumerate(book_list, 1):
             pos_str = "Possédé" if book["possessed"] else "Non possédé"
             click.echo(f"{idx:3d}. {book['title']} - {book['author']}")
             click.echo(f"     Status: {book['status']} | Possession: {pos_str}")

@@ -76,22 +76,22 @@ BABELIO_PASSWORD=your_babelio_password
 
 ## CLI Usage (`babelio-cli`)
 
-### 1. List & Filter Babelio Library Books (`babelio-books`)
+### 1. List & Filter Babelio Library Books (`books`)
 
 Display books in your Babelio library filtered by shelf status, possession, or rating:
 
 ```bash
 # List books that are NOT possessed (custom client-side filter)
-uv run babelio-cli babelio-books --status non-possedes --limit 20
+uv run babelio-cli books --status non-possedes --limit 20
 
 # List unowned books on your "To Read" shelf
-uv run babelio-cli babelio-books --status a-lire --non-possedes
+uv run babelio-cli books --status a-lire --non-possedes
 
 # List books on your "Pense-bête" shelf
-uv run babelio-cli babelio-books --status pense-bete
+uv run babelio-cli books --status pense-bete
 
 # List 5-star rated books with JSON output
-uv run babelio-cli babelio-books --rating 5 --json-output
+uv run babelio-cli books --rating 5 --json-output
 ```
 
 #### Status Filter Options (`--status` / `-s`)
@@ -145,7 +145,7 @@ uv tool install --editable .
 Invoke from anywhere:
 
 ```bash
-babelio-cli babelio-books --status non-possedes
+babelio-cli books --status non-possedes
 ```
 
 ---
