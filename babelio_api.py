@@ -209,6 +209,71 @@ class BabelioBot:
             browser.close()
             return all_books
 
+    def mark_possessed(self, urls: list[str]) -> dict[str, list]:
+        """Add the 'Possédé' tag to each book at the given Babelio URLs.
+
+        Each URL must be a book already present in the user's library (the
+        'Possédé' checkbox only exists in the per-book status dropdown once
+        a book has been added to a shelf). Books already tagged 'Possédé'
+        are reported under 'already' rather than re-clicked.
+        """
+        results: dict[str, list] = {"success": [], "already": [], "failed": []}
+
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=self.headless)
+            user_agent = (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/122.0.0.0 Safari/537.36"
+            )
+
+            context_options = {
+                "user_agent": user_agent,
+                "locale": "fr-FR",
+                "timezone_id": "Europe/Paris",
+            }
+            if os.path.exists(self.state_file):
+                context_options["storage_state"] = self.state_file
+
+            context = browser.new_context(**context_options)
+            page = context.new_page()
+            self._login(context, page)
+
+            for url in urls:
+                try:
+                    page.goto(url, wait_until="domcontentloaded")
+                    page.wait_for_selector(".livre_action_status", timeout=10000)
+
+                    possede_chk = page.locator(".btn_checkbox", has_text="Possédé").first
+                    if "current" in (possede_chk.get_attribute("class") or ""):
+                        click.echo(f"[{url}] Already marked 'Possédé'. Skipping.")
+                        results["already"].append(url)
+                        continue
+
+                    page.locator(".livre_action_status").first.click()
+                    possede_chk = page.locator(
+                        ".livre_action_btn_open_new .btn_checkbox", has_text="Possédé"
+                    ).first
+                    possede_chk.wait_for(state="visible", timeout=5000)
+                    possede_chk.click()
+                    time.sleep(1)
+
+                    possede_chk_after = page.locator(".btn_checkbox", has_text="Possédé").first
+                    if "current" in (possede_chk_after.get_attribute("class") or ""):
+                        click.echo(f"[{url}] Marked 'Possédé'.")
+                        results["success"].append(url)
+                    else:
+                        click.echo(f"[{url}] Checkbox did not update as expected.")
+                        results["failed"].append((url, "Checkbox state did not update"))
+                except Exception as e:
+                    click.echo(f"[{url}] Error: {e}")
+                    results["failed"].append((url, str(e)))
+
+                time.sleep(1.5)
+
+            browser.close()
+            return results
+
     def run(
         self,
         books_data: list[list[str]],

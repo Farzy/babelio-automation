@@ -267,6 +267,65 @@ def books(
         click.echo(f"An error occurred: {e}", err=True)
 
 
+@cli.command("mark-possessed")
+@click.option(
+    "--urls-file",
+    type=click.Path(exists=True, dir_okay=False),
+    required=True,
+    help="Path to a JSON file containing a list of Babelio book URLs (or a list of "
+    "objects with a 'url' field) to tag as 'Possédé'.",
+)
+@click.option("--dry-run/--no-dry-run", default=True, help="List URLs without modifying Babelio")
+@click.option(
+    "--username",
+    default=CFG.get("babelio_username") or None,
+    help="Babelio Username",
+    required=True,
+)
+@click.option(
+    "--password",
+    default=CFG.get("babelio_password") or None,
+    help="Babelio Password",
+    required=True,
+)
+@click.option("--headless/--no-headless", default=True, help="Run browser in headless mode")
+def mark_possessed(urls_file, dry_run, username, password, headless):
+    """Add the 'Possédé' tag to books already in your Babelio library."""
+    with open(urls_file, encoding="utf-8") as f:
+        raw = json.load(f)
+
+    urls = [item["url"] if isinstance(item, dict) else item for item in raw]
+
+    if not urls:
+        click.echo("No URLs found in file.")
+        return
+
+    click.echo(f"Loaded {len(urls)} book URL(s) from {urls_file}.")
+
+    if dry_run:
+        click.echo("DRY RUN: would mark the following URLs as 'Possédé':")
+        for url in urls:
+            click.echo(f"  - {url}")
+        return
+
+    bot = BabelioBot(username, password, headless=headless)
+    results = bot.mark_possessed(urls)
+
+    click.echo("\n" + "=" * 40)
+    click.echo("MARK POSSESSED SUMMARY")
+    click.echo("=" * 40)
+    click.echo(f"\nMarked 'Possédé': {len(results['success'])}")
+    for url in results["success"]:
+        click.echo(f"  - {url}")
+    click.echo(f"\nAlready 'Possédé': {len(results['already'])}")
+    for url in results["already"]:
+        click.echo(f"  - {url}")
+    click.echo(f"\nFailed: {len(results['failed'])}")
+    for url, reason in results["failed"]:
+        click.echo(f"  - {url}: {reason}")
+    click.echo("=" * 40)
+
+
 @cli.command("show-config")
 def show_config():
     """Show active configuration file values and paths."""
