@@ -148,7 +148,25 @@ uv run babelio-cli books --rating 5 --json-output
 
 ---
 
-### 2. Synchronize Google Sheet to Babelio (`sync`)
+### 2. Tag Owned Books as "Possédé" (`mark-possessed`)
+
+Babelio never sets the "Possédé" tag automatically when a book is added to a shelf, so books
+you actually own can stay untagged. This command reads a JSON file listing Babelio book URLs
+(a plain list of URL strings, or a list of objects with a `url` field — e.g. the output of
+`books --json-output`) and checks the "Possédé" box for each one. Books already tagged are
+reported separately and left untouched.
+
+```bash
+# Dry run (default): just list the URLs that would be tagged
+uv run babelio-cli mark-possessed --urls-file owned_books.json
+
+# Actually tag the books
+uv run babelio-cli mark-possessed --urls-file owned_books.json --no-dry-run
+```
+
+---
+
+### 3. Synchronize Google Sheet to Babelio (`sync`)
 
 #### Dry Run (Default / Safe Mode)
 ```bash
@@ -162,7 +180,7 @@ uv run babelio-cli sync --no-headless --no-dry-run
 
 ---
 
-### 3. Read Google Sheet Data (`read-books`)
+### 4. Read Google Sheet Data (`read-books`)
 
 ```bash
 uv run babelio-cli read-books
