@@ -21,3 +21,9 @@ wheels/
 
 # State
 .babelio_state.json
+
+# Test / build artifacts
+.coverage
+coverage.xml
+dist/
+.mypy_cache/

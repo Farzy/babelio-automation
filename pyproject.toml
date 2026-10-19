@@ -27,8 +27,11 @@ package = true
 [dependency-groups]
 dev = [
     "detect-secrets>=1.5.0",
+    "mypy>=2.4.0",
+    "pip-audit>=2.10.1",
     "pre-commit>=4.5.1",
     "pytest>=8.0.0",
+    "pytest-cov>=7.1.0",
     "ruff>=0.15.6",
 ]
 
@@ -72,3 +75,22 @@ line-ending = "auto"
 [tool.bandit]
 exclude_dirs = ["tests", "venv", ".venv", "__pycache__"]
 skips = ["B101", "B404", "B603"]
+
+[tool.coverage.run]
+source = ["."]
+omit = ["tests/*", ".venv/*"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+# Browser-driven code (Playwright flows, CLI wiring) is verified manually against
+# the live site; the threshold guards the parsing/filtering/config logic.
+fail_under = 45
+
+[tool.mypy]
+python_version = "3.12"
+files = ["main.py", "babelio_api.py", "babelio_parsers.py", "gog_client.py", "config.py"]
+warn_unused_ignores = true
+warn_redundant_casts = true
+no_implicit_optional = true
+check_untyped_defs = true

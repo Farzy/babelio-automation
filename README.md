@@ -240,3 +240,27 @@ You may obtain a copy of the License at
 uv run ruff check .
 uv run pre-commit install
 ```
+
+### Continuous Integration
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on every push to `main`, every pull request and weekly (dependency audit):
+
+| Job | Checks |
+| --- | --- |
+| `pre-commit` | Whitespace/EOF/YAML/JSON/TOML hooks, Ruff lint + format, detect-secrets, Bandit, `uv.lock` consistency, GitHub workflow schema |
+| `typecheck` | `mypy` |
+| `test` | `pytest` with coverage (Python 3.12 and 3.13, minimum coverage enforced in `pyproject.toml`) |
+| `audit` | `pip-audit` against known vulnerabilities |
+| `lockfile` | `uv lock --check` |
+| `build` | `uv build` and a `babelio-cli --help` smoke test |
+
+Run the same checks locally:
+
+```bash
+uv run pre-commit run --all-files
+uv run mypy
+uv run pytest --cov
+uv run pip-audit --skip-editable
+```
+
+Dependabot keeps `uv` dependencies and GitHub Actions up to date.

@@ -4,7 +4,7 @@ import time
 from typing import Any
 
 import click
-from playwright.sync_api import TimeoutError, sync_playwright
+from playwright.sync_api import Browser, BrowserContext, TimeoutError, sync_playwright
 
 from babelio_parsers import (
     has_next_library_page,
@@ -14,6 +14,13 @@ from babelio_parsers import (
 )
 from config import DEFAULT_TTL_SECONDS, get_state_file_path, load_books_cache, save_books_cache
 from gog_client import GogSheetsClient
+
+#: User agent sent by every browser context.
+USER_AGENT = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/122.0.0.0 Safari/537.36"
+)
 
 #: Label of the book page button while the book is not yet in the user's library.
 ADD_TO_LIBRARY_LABEL = "Ajouter à mes livres"
@@ -25,6 +32,15 @@ class BabelioBot:
         self.password = password
         self.headless = headless
         self.state_file = get_state_file_path()
+
+    def _new_context(self, browser: Browser) -> BrowserContext:
+        """Create a French-locale browser context, reusing the saved session if any."""
+        return browser.new_context(
+            user_agent=USER_AGENT,
+            locale="fr-FR",
+            timezone_id="Europe/Paris",
+            storage_state=self.state_file if os.path.exists(self.state_file) else None,
+        )
 
     def _build_library_url(self, status: str, rating: int | None = None) -> str:
         """Build the mabibliotheque.php URL based on status and rating filters."""
@@ -133,21 +149,7 @@ class BabelioBot:
 
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=self.headless)
-            user_agent = (
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/122.0.0.0 Safari/537.36"
-            )
-
-            context_options = {
-                "user_agent": user_agent,
-                "locale": "fr-FR",
-                "timezone_id": "Europe/Paris",
-            }
-            if os.path.exists(self.state_file):
-                context_options["storage_state"] = self.state_file
-
-            context = browser.new_context(**context_options)
+            context = self._new_context(browser)
             page = context.new_page()
 
             self._login(context, page)
@@ -189,21 +191,7 @@ class BabelioBot:
 
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=self.headless)
-            user_agent = (
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/122.0.0.0 Safari/537.36"
-            )
-
-            context_options = {
-                "user_agent": user_agent,
-                "locale": "fr-FR",
-                "timezone_id": "Europe/Paris",
-            }
-            if os.path.exists(self.state_file):
-                context_options["storage_state"] = self.state_file
-
-            context = browser.new_context(**context_options)
+            context = self._new_context(browser)
             page = context.new_page()
             self._login(context, page)
 
@@ -255,21 +243,7 @@ class BabelioBot:
         """Run Babelio synchronization for books data extracted from Google Sheets."""
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=self.headless)
-            user_agent = (
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/122.0.0.0 Safari/537.36"
-            )
-
-            context_options = {
-                "user_agent": user_agent,
-                "locale": "fr-FR",
-                "timezone_id": "Europe/Paris",
-            }
-            if os.path.exists(self.state_file):
-                context_options["storage_state"] = self.state_file
-
-            context = browser.new_context(**context_options)
+            context = self._new_context(browser)
             page = context.new_page()
 
             click.echo("Logging into Babelio...")
@@ -406,8 +380,7 @@ class BabelioBot:
         if title:
             search_queries.append(title)
 
-        seen = set()
-        search_queries = [q for q in search_queries if not (q in seen or seen.add(q))]
+        search_queries = list(dict.fromkeys(search_queries))
 
         found = False
         for query in search_queries:
