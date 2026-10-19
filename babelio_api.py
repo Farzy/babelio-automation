@@ -122,37 +122,6 @@ class BabelioBot:
             storage_state=self.state_file if os.path.exists(self.state_file) else None,
         )
 
-    def _build_library_url(self, status: str, rating: int | None = None) -> str:
-        """Build the mabibliotheque.php URL based on status and rating filters."""
-        base_url = "https://www.babelio.com/mabibliotheque.php"
-        params = []
-
-        status_norm = status.strip().lower().replace("_", "-").replace(" ", "-")
-
-        if status_norm in ["lus", "lu", "read"]:
-            params.append("s1=1")
-        elif status_norm in ["a-lire", "à-lire", "to-read"]:
-            params.append("s1=2")
-        elif status_norm in ["en-cours", "currently-reading"]:
-            params.append("s1=0")
-        elif status_norm in ["wishlist"]:
-            params.append("s1=3")
-        elif status_norm in ["abandonnes", "abandonnés", "abandoned"]:
-            params.append("s1=4")
-        elif status_norm in ["possedes", "possédés", "owned"]:
-            params.append("possede=1")
-        elif status_norm in ["critiques", "critiqués", "reviewed"]:
-            params.append("critique=reviewed")
-        elif status_norm in ["non-critiques", "non-critiqués", "unreviewed"]:
-            params.append("critique=notreviewed")
-
-        if rating in [1, 2, 3, 4, 5]:
-            params.append(f"note={rating}")
-
-        if params:
-            return f"{base_url}?{'&'.join(params)}"
-        return base_url
-
     def fetch_library_books(
         self,
         statuses: Sequence[str] = ("tous",),

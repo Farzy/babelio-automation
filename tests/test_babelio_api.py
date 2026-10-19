@@ -16,31 +16,6 @@ def test_map_status():
     assert bot._map_status("unknown status") == "Lu"
 
 
-def test_build_library_url():
-    bot = BabelioBot("dummy@user.com", "dummypass")
-
-    assert "s1=1" in bot._build_library_url("lus")
-    assert "s1=2" in bot._build_library_url("a-lire")
-    assert "s1=0" in bot._build_library_url("en-cours")
-    assert "s1=3" in bot._build_library_url("wishlist")
-    assert "s1=4" in bot._build_library_url("abandonnes")
-    assert "possede=1" in bot._build_library_url("possedes")
-    assert "critique=reviewed" in bot._build_library_url("critiques")
-    assert "critique=notreviewed" in bot._build_library_url("non-critiques")
-    assert bot._build_library_url("tous") == "https://www.babelio.com/mabibliotheque.php"
-    assert bot._build_library_url("non-possedes") == "https://www.babelio.com/mabibliotheque.php"
-    assert "note=5" in bot._build_library_url("lus", rating=5)
-
-
-def test_build_library_url_redesigned_filters():
-    bot = BabelioBot("dummy@user.com", "dummypass")
-
-    assert bot._build_library_url("wishlist").endswith("?s1=3")
-    assert bot._build_library_url("possedes").endswith("?possede=1")
-    assert bot._build_library_url("critiques").endswith("?critique=reviewed")
-    assert bot._build_library_url("non-critiques").endswith("?critique=notreviewed")
-
-
 def _fetch(bot, monkeypatch, books, **kwargs):
     monkeypatch.setattr("babelio_api.load_books_cache", lambda _ttl: books)
     return bot.fetch_library_books(**kwargs)

@@ -12,16 +12,6 @@ from bs4 import BeautifulSoup, Tag
 
 BASE_URL = "https://www.babelio.com"
 
-#: Babelio ``statut`` code (``s1`` URL parameter, ``lib-status--N`` CSS class,
-#: ``statut`` form value) mapped to the French label displayed on the site.
-STATUS_LABELS: dict[int, str] = {
-    0: "En cours",
-    1: "Lu",
-    2: "À lire",
-    3: "Wishlist",
-    4: "Abandonné",
-}
-
 _RATING_RE = re.compile(r"(\d)\s+sur\s+5")
 
 
