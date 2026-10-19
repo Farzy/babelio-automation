@@ -58,7 +58,7 @@ def test_fetch_library_books_filters(monkeypatch):
     assert titles(status_filter="wishlist") == ["B"]
     assert titles(status_filter="lus") == ["A", "C"]
     assert titles(status_filter="possedes") == ["A"]
-    assert titles(status_filter="non-possedes") == ["B", "C"]
+    assert titles(status_filter="non-possedes") == ["C"]  # wishlist "B" excluded
     assert titles(status_filter="critiques") == ["A"]
     assert titles(status_filter="non-critiques") == ["B", "C"]
     assert titles(rating=3) == ["C"]

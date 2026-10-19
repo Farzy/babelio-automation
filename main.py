@@ -153,12 +153,6 @@ def sync(sheet_url, account, username, password, headless, dry_run, limit):
     help="Filter books by status (e.g. lus, a-lire, non-possedes, wishlist)",
 )
 @click.option(
-    "--non-possedes",
-    is_flag=True,
-    default=False,
-    help="Filter out books marked as possessed (can be combined with any status)",
-)
-@click.option(
     "--rating",
     "-r",
     type=click.IntRange(1, 5),
@@ -214,7 +208,6 @@ def sync(sheet_url, account, username, password, headless, dry_run, limit):
 @click.option("--headless/--no-headless", default=True, help="Run browser in headless mode")
 def books(
     status,
-    non_possedes,
     rating,
     limit,
     force_refresh,
@@ -232,13 +225,12 @@ def books(
         if not json_output:
             click.echo(
                 f"Fetching Babelio books (status='{status}', rating={rating}, "
-                f"non_possedes={non_possedes}, bypass_cache={bypass})..."
+                f"bypass_cache={bypass})..."
             )
         book_list = bot.fetch_library_books(
             status_filter=status,
             rating=rating,
             limit=limit,
-            non_possedes_only=non_possedes,
             force_refresh=bypass,
             cache_ttl_seconds=cache_ttl,
         )

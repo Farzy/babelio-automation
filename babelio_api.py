@@ -78,7 +78,6 @@ class BabelioBot:
         status_filter: str = "tous",
         rating: int | None = None,
         limit: int = 50,
-        non_possedes_only: bool = False,
         force_refresh: bool = False,
         cache_ttl_seconds: int = DEFAULT_TTL_SECONDS,
     ) -> list[dict[str, Any]]:
@@ -101,7 +100,6 @@ class BabelioBot:
 
         # Apply in-memory filtering
         status_norm = status_filter.strip().lower().replace("_", "-").replace(" ", "-")
-        filter_non_possedes = non_possedes_only or (status_norm == "non-possedes")
 
         filtered_books = []
         for book in all_books:
@@ -134,8 +132,9 @@ class BabelioBot:
             ):
                 continue
 
-            # Filter non-possedes
-            if filter_non_possedes and is_pos:
+            # "non-possedes" means books I could own but do not: wishlist
+            # entries are not mine yet, so they are excluded as well.
+            if status_norm == "non-possedes" and (is_pos or b_status == "Wishlist"):
                 continue
 
             filtered_books.append(book)

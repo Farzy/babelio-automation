@@ -18,9 +18,8 @@ A CLI tool for synchronizing personal book libraries from Google Sheets to [Babe
   - **`wishlist`**: Books tagged as Wishlist.
   - **`abandonnes`**: Books marked as Abandoned.
   - **`possedes`**: Books marked as Possessed.
-  - **`non-possedes`**: Books **NOT** marked as Possessed (client-side evaluation missing from web interface).
+  - **`non-possedes`**: Books **NOT** marked as Possessed, excluding the Wishlist shelf (wishlist books are not yours yet).
   - **`critiques` / `non-critiques`**: Filter by review status.
-  - **`--non-possedes` flag**: Combine with any status (e.g. `--status a-lire --non-possedes` to find unowned books on your "To Read" shelf).
 
 ---
 
@@ -119,9 +118,6 @@ uv run babelio-cli books --status non-possedes --no-cache
 # Force refresh library cache
 uv run babelio-cli books --status non-possedes --force-refresh
 
-# List unowned books on your "To Read" shelf
-uv run babelio-cli books --status a-lire --non-possedes
-
 # List books on your "Wishlist" shelf
 uv run babelio-cli books --status wishlist
 
@@ -142,7 +138,7 @@ uv run babelio-cli books --rating 5 --json-output
 - `wishlist`: Wishlist
 - `abandonnes`: Abandoned books
 - `possedes`: Possessed books
-- `non-possedes`: Books not marked as possessed
+- `non-possedes`: Books not marked as possessed (Wishlist excluded)
 - `critiques`: Reviewed books
 - `non-critiques`: Unreviewed books
 

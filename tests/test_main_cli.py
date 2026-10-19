@@ -74,3 +74,10 @@ def test_books_rejects_removed_status():
     result = CliRunner().invoke(main.cli, ["books", "--status", "pense-bete", *CREDS])
 
     assert result.exit_code != 0
+
+
+def test_books_has_no_non_possedes_flag():
+    result = CliRunner().invoke(main.cli, ["books", "--non-possedes", *CREDS])
+
+    assert result.exit_code != 0
+    assert "No such option" in result.output
