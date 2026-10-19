@@ -15,7 +15,7 @@ STATUS_CHOICES = [
     "lus",
     "a-lire",
     "en-cours",
-    "pense-bete",
+    "wishlist",
     "abandonnes",
     "possedes",
     "non-possedes",
@@ -150,7 +150,7 @@ def sync(sheet_url, account, username, password, headless, dry_run, limit):
     "-s",
     type=click.Choice(STATUS_CHOICES, case_sensitive=False),
     default="tous",
-    help="Filter books by status (e.g. lus, a-lire, non-possedes, pense-bete)",
+    help="Filter books by status (e.g. lus, a-lire, non-possedes, wishlist)",
 )
 @click.option(
     "--non-possedes",

@@ -40,7 +40,7 @@ def load_config() -> dict[str, Any]:
     config.setdefault("google_sheet_url", os.getenv("GOOGLE_SHEET_URL", ""))
     config.setdefault("gog_account", os.getenv("GOG_ACCOUNT", None))
 
-    ttl_val = config.get("cache_ttl_seconds")
+    ttl_val: Any = config.get("cache_ttl_seconds")
     if ttl_val is None:
         ttl_val = os.getenv("BABELIO_CACHE_TTL", DEFAULT_TTL_SECONDS)
     try:

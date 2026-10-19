@@ -15,7 +15,7 @@ A CLI tool for synchronizing personal book libraries from Google Sheets to [Babe
   - **`lus`**: Books on your Read shelf.
   - **`a-lire`**: Books on your To Read shelf.
   - **`en-cours`**: Books currently being read.
-  - **`pense-bete`**: Books tagged as Pense-bête / Bookmarks.
+  - **`wishlist`**: Books tagged as Wishlist.
   - **`abandonnes`**: Books marked as Abandoned.
   - **`possedes`**: Books marked as Possessed.
   - **`non-possedes`**: Books **NOT** marked as Possessed (client-side evaluation missing from web interface).
@@ -122,8 +122,8 @@ uv run babelio-cli books --status non-possedes --force-refresh
 # List unowned books on your "To Read" shelf
 uv run babelio-cli books --status a-lire --non-possedes
 
-# List books on your "Pense-bête" shelf
-uv run babelio-cli books --status pense-bete
+# List books on your "Wishlist" shelf
+uv run babelio-cli books --status wishlist
 
 # List 5-star rated books with JSON output
 uv run babelio-cli books --rating 5 --json-output
@@ -139,7 +139,7 @@ uv run babelio-cli books --rating 5 --json-output
 - `lus`: Read books
 - `a-lire`: Books to read
 - `en-cours`: Currently reading
-- `pense-bete`: Bookmarks / Pense-bête
+- `wishlist`: Wishlist
 - `abandonnes`: Abandoned books
 - `possedes`: Possessed books
 - `non-possedes`: Books not marked as possessed
@@ -240,3 +240,27 @@ You may obtain a copy of the License at
 uv run ruff check .
 uv run pre-commit install
 ```
+
+### Continuous Integration
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on every push to `main`, every pull request and weekly (dependency audit):
+
+| Job | Checks |
+| --- | --- |
+| `pre-commit` | Whitespace/EOF/YAML/JSON/TOML hooks, Ruff lint + format, detect-secrets, Bandit, `uv.lock` consistency, GitHub workflow schema |
+| `typecheck` | `mypy` |
+| `test` | `pytest` with coverage (Python 3.12 and 3.13, minimum coverage enforced in `pyproject.toml`) |
+| `audit` | `pip-audit` against known vulnerabilities |
+| `lockfile` | `uv lock --check` |
+| `build` | `uv build` and a `babelio-cli --help` smoke test |
+
+Run the same checks locally:
+
+```bash
+uv run pre-commit run --all-files
+uv run mypy
+uv run pytest --cov
+uv run pip-audit --skip-editable
+```
+
+Dependabot keeps `uv` dependencies and GitHub Actions up to date.

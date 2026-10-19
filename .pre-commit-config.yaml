@@ -42,3 +42,14 @@ repos:
       - id: bandit
         args: ["-c", "pyproject.toml"]
         additional_dependencies: ["bandit[toml]"]
+
+  - repo: https://github.com/astral-sh/uv-pre-commit
+    rev: 0.8.0
+    hooks:
+      - id: uv-lock
+
+  - repo: https://github.com/python-jsonschema/check-jsonschema
+    rev: 0.33.0
+    hooks:
+      - id: check-github-workflows
+      - id: check-dependabot
