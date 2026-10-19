@@ -58,7 +58,7 @@ def test_books_json_output(monkeypatch):
             pass
 
         def fetch_library_books(self, **kwargs):
-            assert kwargs["status_filter"] == "wishlist"
+            assert kwargs["statuses"] == ["wishlist"]
             return [book]
 
     monkeypatch.setattr(main, "BabelioBot", FakeBot)
@@ -74,3 +74,58 @@ def test_books_rejects_removed_status():
     result = CliRunner().invoke(main.cli, ["books", "--status", "pense-bete", *CREDS])
 
     assert result.exit_code != 0
+
+
+def test_books_has_no_non_possedes_flag():
+    result = CliRunner().invoke(main.cli, ["books", "--non-possedes", *CREDS])
+
+    assert result.exit_code != 0
+    assert "No such option" in result.output
+
+
+def test_books_accepts_repeated_status_flags(monkeypatch):
+    seen = {}
+
+    class FakeBot:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def fetch_library_books(self, **kwargs):
+            seen.update(kwargs)
+            return []
+
+    monkeypatch.setattr(main, "BabelioBot", FakeBot)
+    result = CliRunner().invoke(
+        main.cli, ["books", "-s", "a-lire", "-s", "non-possedes", "--json-output", *CREDS]
+    )
+
+    assert result.exit_code == 0
+    assert seen["statuses"] == ["a-lire", "non-possedes"]
+
+
+def test_books_defaults_to_tous(monkeypatch):
+    seen = {}
+
+    class FakeBot:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def fetch_library_books(self, **kwargs):
+            seen.update(kwargs)
+            return []
+
+    monkeypatch.setattr(main, "BabelioBot", FakeBot)
+    CliRunner().invoke(main.cli, ["books", "--json-output", *CREDS])
+
+    assert seen["statuses"] == ["tous"]
+
+
+def test_books_rejects_incompatible_statuses_before_scraping(monkeypatch):
+    def boom(*_args, **_kwargs):
+        raise AssertionError("must not reach Babelio")
+
+    monkeypatch.setattr(main, "BabelioBot", boom)
+    result = CliRunner().invoke(main.cli, ["books", "-s", "possedes", "-s", "non-possedes", *CREDS])
+
+    assert result.exit_code == 2
+    assert "Incompatible statuses" in result.output

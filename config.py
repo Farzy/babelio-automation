@@ -51,27 +51,6 @@ def load_config() -> dict[str, Any]:
     return config
 
 
-def create_user_config_file(
-    username: str,
-    password: str,
-    sheet_url: str,
-    gog_account: str | None = None,
-    ttl: int = DEFAULT_TTL_SECONDS,
-) -> str:
-    """Create or update user's configuration file in ~/.config/babelio-automation/config.json."""
-    ensure_config_dir()
-    cfg_data = {
-        "babelio_username": username,
-        "babelio_password": password,
-        "google_sheet_url": sheet_url,
-        "gog_account": gog_account,
-        "cache_ttl_seconds": ttl,
-    }
-    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-        json.dump(cfg_data, f, indent=2, ensure_ascii=False)
-    return CONFIG_FILE
-
-
 def load_books_cache(ttl_seconds: int = DEFAULT_TTL_SECONDS) -> list[dict[str, Any]] | None:
     """Load books from local cache file if it exists and is unexpired."""
     if not os.path.exists(CACHE_FILE):
