@@ -121,6 +121,12 @@ uv run babelio-cli books --status non-possedes --force-refresh
 # List books on your "Wishlist" shelf
 uv run babelio-cli books --status wishlist
 
+# Combine filters by repeating --status: unowned books on your "To Read" shelf
+uv run babelio-cli books -s a-lire -s non-possedes
+
+# Owned books that are either read or abandoned, and not yet reviewed
+uv run babelio-cli books -s lus -s abandonnes -s possedes -s non-critiques
+
 # List 5-star rated books with JSON output
 uv run babelio-cli books --rating 5 --json-output
 ```
@@ -141,6 +147,16 @@ uv run babelio-cli books --rating 5 --json-output
 - `non-possedes`: Books not marked as possessed (Wishlist excluded)
 - `critiques`: Reviewed books
 - `non-critiques`: Unreviewed books
+
+`--status` can be repeated. Several shelves (`lus`, `a-lire`, `en-cours`, `wishlist`, `abandonnes`)
+match **any** of them, while the shelf, possession (`possedes` / `non-possedes`) and review
+(`critiques` / `non-critiques`) groups are combined with **AND**. Combinations that can never
+match are rejected before anything is fetched:
+
+- `tous` together with any other status
+- `possedes` with `non-possedes`
+- `critiques` with `non-critiques`
+- `non-possedes` with `wishlist` (`non-possedes` always excludes the Wishlist shelf)
 
 ---
 

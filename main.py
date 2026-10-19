@@ -3,25 +3,12 @@ import json
 import click
 from dotenv import load_dotenv
 
-from babelio_api import BabelioBot
+from babelio_api import VALID_STATUSES, BabelioBot, validate_statuses
 from config import DEFAULT_TTL_SECONDS, load_config
 from gog_client import GogSheetsClient
 
 load_dotenv()
 CFG = load_config()
-
-STATUS_CHOICES = [
-    "tous",
-    "lus",
-    "a-lire",
-    "en-cours",
-    "wishlist",
-    "abandonnes",
-    "possedes",
-    "non-possedes",
-    "critiques",
-    "non-critiques",
-]
 
 
 @click.group()
@@ -148,9 +135,13 @@ def sync(sheet_url, account, username, password, headless, dry_run, limit):
 @click.option(
     "--status",
     "-s",
-    type=click.Choice(STATUS_CHOICES, case_sensitive=False),
-    default="tous",
-    help="Filter books by status (e.g. lus, a-lire, non-possedes, wishlist)",
+    "statuses",
+    type=click.Choice(VALID_STATUSES, case_sensitive=False),
+    multiple=True,
+    default=("tous",),
+    show_default=True,
+    help="Filter books by status; repeat to combine (e.g. -s lus -s a-lire -s possedes). "
+    "Several shelves match any of them; shelf, possession and review filters are ANDed.",
 )
 @click.option(
     "--rating",
@@ -207,7 +198,7 @@ def sync(sheet_url, account, username, password, headless, dry_run, limit):
 )
 @click.option("--headless/--no-headless", default=True, help="Run browser in headless mode")
 def books(
-    status,
+    statuses,
     rating,
     limit,
     force_refresh,
@@ -220,15 +211,20 @@ def books(
 ):
     """List and filter books from your Babelio library (uses 1-hour local cache)"""
     try:
+        statuses = validate_statuses(statuses)
+    except ValueError as e:
+        raise click.UsageError(str(e)) from e
+
+    try:
         bypass = force_refresh or no_cache
         bot = BabelioBot(username, password, headless=headless)
         if not json_output:
             click.echo(
-                f"Fetching Babelio books (status='{status}', rating={rating}, "
+                f"Fetching Babelio books (status={','.join(statuses)}, rating={rating}, "
                 f"bypass_cache={bypass})..."
             )
         book_list = bot.fetch_library_books(
-            status_filter=status,
+            statuses=statuses,
             rating=rating,
             limit=limit,
             force_refresh=bypass,

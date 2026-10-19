@@ -1,6 +1,7 @@
 import html
 import os
 import time
+from collections.abc import Sequence
 from typing import Any
 
 import click
@@ -24,6 +25,85 @@ USER_AGENT = (
 
 #: Label of the book page button while the book is not yet in the user's library.
 ADD_TO_LIBRARY_LABEL = "Ajouter à mes livres"
+
+
+#: Reading-shelf filters (``--status``) mapped to the shelf label stored on each book.
+#: A book sits on exactly one shelf, so selecting several shelves means "any of them".
+SHELF_STATUSES: dict[str, str] = {
+    "lus": "Lu",
+    "a-lire": "À lire",
+    "en-cours": "En cours",
+    "wishlist": "Wishlist",
+    "abandonnes": "Abandonné",
+}
+
+#: Every accepted ``--status`` value. Filters from different groups (shelf,
+#: possession, review) are combined with AND.
+VALID_STATUSES: tuple[str, ...] = (
+    "tous",
+    *SHELF_STATUSES,
+    "possedes",
+    "non-possedes",
+    "critiques",
+    "non-critiques",
+)
+
+#: Pairs of statuses that can never match the same book (or make no sense together).
+_INCOMPATIBLE_STATUSES: tuple[tuple[str, str, str], ...] = (
+    ("possedes", "non-possedes", "a book cannot be both owned and not owned"),
+    ("critiques", "non-critiques", "a book cannot be both reviewed and not reviewed"),
+    (
+        "non-possedes",
+        "wishlist",
+        "'non-possedes' always excludes the Wishlist shelf (those books are not yours yet)",
+    ),
+)
+
+
+def validate_statuses(statuses: Sequence[str]) -> list[str]:
+    """Normalize and validate a list of ``--status`` filters.
+
+    Returns the de-duplicated canonical statuses (``["tous"]`` when empty).
+
+    Raises:
+        ValueError: on an unknown status, on ``tous`` mixed with another status,
+            or on a combination that can never match (see ``_INCOMPATIBLE_STATUSES``).
+    """
+    normalized = list(
+        dict.fromkeys(s.strip().lower().replace("_", "-").replace(" ", "-") for s in statuses)
+    ) or ["tous"]
+
+    unknown = [s for s in normalized if s not in VALID_STATUSES]
+    if unknown:
+        raise ValueError(f"Unknown status: {', '.join(unknown)}")
+
+    if "tous" in normalized and len(normalized) > 1:
+        raise ValueError("'tous' selects every book and cannot be combined with another status")
+
+    for first, second, reason in _INCOMPATIBLE_STATUSES:
+        if first in normalized and second in normalized:
+            raise ValueError(f"Incompatible statuses '{first}' and '{second}': {reason}")
+
+    return normalized
+
+
+def _matches_statuses(book: dict[str, Any], statuses: Sequence[str]) -> bool:
+    """Tell whether a book satisfies validated statuses (OR across shelves, AND across groups)."""
+    shelves = [SHELF_STATUSES[s] for s in statuses if s in SHELF_STATUSES]
+    book_shelf = str(book.get("status", "")).strip()
+    possessed = bool(book.get("possessed", False))
+    reviewed = bool(book.get("reviewed", False))
+
+    if shelves and book_shelf not in shelves:
+        return False
+    if "possedes" in statuses and not possessed:
+        return False
+    # Wishlist entries are not owned yet, hence never "non-possedes".
+    if "non-possedes" in statuses and (possessed or book_shelf == "Wishlist"):
+        return False
+    if "critiques" in statuses and not reviewed:
+        return False
+    return not ("non-critiques" in statuses and reviewed)
 
 
 class BabelioBot:
@@ -75,13 +155,17 @@ class BabelioBot:
 
     def fetch_library_books(
         self,
-        status_filter: str = "tous",
+        statuses: Sequence[str] = ("tous",),
         rating: int | None = None,
         limit: int = 50,
         force_refresh: bool = False,
         cache_ttl_seconds: int = DEFAULT_TTL_SECONDS,
     ) -> list[dict[str, Any]]:
-        """Fetch user library books with local caching and status/possession filters."""
+        """Fetch user library books with local caching and status/possession filters.
+
+        ``statuses`` is validated with :func:`validate_statuses` (a ``ValueError``
+        is raised for unknown or incompatible combinations).
+        """
         all_books: list[dict[str, Any]] | None = None
 
         if not force_refresh:
@@ -99,45 +183,14 @@ class BabelioBot:
             click.echo(f"Cached {len(all_books)} books to local cache.")
 
         # Apply in-memory filtering
-        status_norm = status_filter.strip().lower().replace("_", "-").replace(" ", "-")
+        selected = validate_statuses(statuses)
 
-        filtered_books = []
-        for book in all_books:
-            b_status = str(book.get("status", "")).strip()
-            is_pos = bool(book.get("possessed", False))
-            b_rating = book.get("rating")
-
-            # Filter by rating if specified
-            if rating in [1, 2, 3, 4, 5] and b_rating != rating:
-                continue
-
-            # Filter by reading status / shelf
-            if status_norm in ["lus", "lu", "read"] and b_status != "Lu":
-                continue
-            if status_norm in ["a-lire", "à-lire", "to-read"] and b_status != "À lire":
-                continue
-            if status_norm in ["en-cours", "currently-reading"] and b_status != "En cours":
-                continue
-            if status_norm in ["wishlist"] and b_status != "Wishlist":
-                continue
-            if status_norm in ["abandonnes", "abandonnés", "abandoned"] and b_status != "Abandonné":
-                continue
-            if status_norm in ["possedes", "possédés", "owned"] and not is_pos:
-                continue
-
-            if status_norm in ["critiques", "critiqués", "reviewed"] and not book.get("reviewed"):
-                continue
-            if status_norm in ["non-critiques", "non-critiqués", "unreviewed"] and book.get(
-                "reviewed"
-            ):
-                continue
-
-            # "non-possedes" means books I could own but do not: wishlist
-            # entries are not mine yet, so they are excluded as well.
-            if status_norm == "non-possedes" and (is_pos or b_status == "Wishlist"):
-                continue
-
-            filtered_books.append(book)
+        filtered_books = [
+            book
+            for book in all_books
+            if (rating not in [1, 2, 3, 4, 5] or book.get("rating") == rating)
+            and _matches_statuses(book, selected)
+        ]
 
         return filtered_books[:limit]
 
