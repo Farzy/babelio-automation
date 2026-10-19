@@ -1,12 +1,22 @@
 import html
 import os
 import time
+from typing import Any
 
 import click
 from playwright.sync_api import TimeoutError, sync_playwright
 
+from babelio_parsers import (
+    has_next_library_page,
+    parse_book_header,
+    parse_library_page,
+    parse_search_results,
+)
 from config import DEFAULT_TTL_SECONDS, get_state_file_path, load_books_cache, save_books_cache
 from gog_client import GogSheetsClient
+
+#: Label of the book page button while the book is not yet in the user's library.
+ADD_TO_LIBRARY_LABEL = "Ajouter à mes livres"
 
 
 class BabelioBot:
@@ -29,16 +39,16 @@ class BabelioBot:
             params.append("s1=2")
         elif status_norm in ["en-cours", "currently-reading"]:
             params.append("s1=0")
-        elif status_norm in ["pense-bete", "pense-bête", "bookmark"]:
+        elif status_norm in ["wishlist"]:
             params.append("s1=3")
         elif status_norm in ["abandonnes", "abandonnés", "abandoned"]:
             params.append("s1=4")
         elif status_norm in ["possedes", "possédés", "owned"]:
-            params.append("s1=5")
+            params.append("possede=1")
         elif status_norm in ["critiques", "critiqués", "reviewed"]:
-            params.append("s3=10")
+            params.append("critique=reviewed")
         elif status_norm in ["non-critiques", "non-critiqués", "unreviewed"]:
-            params.append("s3=11")
+            params.append("critique=notreviewed")
 
         if rating in [1, 2, 3, 4, 5]:
             params.append(f"note={rating}")
@@ -55,9 +65,9 @@ class BabelioBot:
         non_possedes_only: bool = False,
         force_refresh: bool = False,
         cache_ttl_seconds: int = DEFAULT_TTL_SECONDS,
-    ) -> list[dict[str, str | bool]]:
+    ) -> list[dict[str, Any]]:
         """Fetch user library books with local caching and status/possession filters."""
-        all_books: list[dict[str, str | bool]] | None = None
+        all_books: list[dict[str, Any]] | None = None
 
         if not force_refresh:
             all_books = load_books_cache(cache_ttl_seconds)
@@ -94,11 +104,18 @@ class BabelioBot:
                 continue
             if status_norm in ["en-cours", "currently-reading"] and b_status != "En cours":
                 continue
-            if status_norm in ["pense-bete", "pense-bête", "bookmark"] and b_status != "Pense-bête":
+            if status_norm in ["wishlist"] and b_status != "Wishlist":
                 continue
             if status_norm in ["abandonnes", "abandonnés", "abandoned"] and b_status != "Abandonné":
                 continue
             if status_norm in ["possedes", "possédés", "owned"] and not is_pos:
+                continue
+
+            if status_norm in ["critiques", "critiqués", "reviewed"] and not book.get("reviewed"):
+                continue
+            if status_norm in ["non-critiques", "non-critiqués", "unreviewed"] and book.get(
+                "reviewed"
+            ):
                 continue
 
             # Filter non-possedes
@@ -109,10 +126,10 @@ class BabelioBot:
 
         return filtered_books[:limit]
 
-    def _scrape_all_library_books(self) -> list[dict[str, str | bool]]:
+    def _scrape_all_library_books(self) -> list[dict[str, Any]]:
         """Scrape all pages of user library from Babelio."""
         base_url = "https://www.babelio.com/mabibliotheque.php"
-        all_books: list[dict[str, str | bool]] = []
+        all_books: list[dict[str, Any]] = []
 
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=self.headless)
@@ -135,76 +152,27 @@ class BabelioBot:
 
             self._login(context, page)
 
-            page_num = 1
             max_pages = 200
 
-            while page_num <= max_pages:
-                page_url = f"{base_url}?pageN={page_num}"
-                click.echo(f"Scraping Babelio library page {page_num}...")
-                page.goto(page_url, wait_until="domcontentloaded")
-                time.sleep(1.5)
+            # The unfiltered view ("Tous") leaves out the Wishlist shelf, so scrape it too.
+            for shelf_query in ("", "s1=3&"):
+                page_num = 1
+                while page_num <= max_pages:
+                    page_url = f"{base_url}?{shelf_query}pageN={page_num}"
+                    click.echo(f"Scraping Babelio library page {page_num} ({page_url})...")
+                    page.goto(page_url, wait_until="domcontentloaded")
+                    time.sleep(1.5)
 
-                rows = page.locator("tr:has(a[href*='/livres/'])").all()
-                if not rows:
-                    rows = page.locator(
-                        "tr[id*='ligne_'], tr[id*='livre_'], table.mes_livres_table tr"
-                    ).all()
+                    html_content = page.content()
+                    page_books = parse_library_page(html_content)
+                    if not page_books:
+                        break
+                    all_books.extend(page_books)
 
-                if not rows:
-                    break
+                    if not has_next_library_page(html_content):
+                        break
 
-                for row in rows:
-                    row_text = row.inner_text().strip()
-                    if not row_text or "TITRE | PARU EN" in row_text:
-                        continue
-
-                    title_links = row.locator("a[href*='/livres/']").all()
-                    title = ""
-                    book_url = ""
-                    for t_link in title_links:
-                        txt = t_link.inner_text().strip()
-                        if (
-                            txt
-                            and not txt.startswith("http")
-                            and "critique" not in txt.lower()
-                            and "citation" not in txt.lower()
-                        ):
-                            title = txt
-                            book_url = t_link.get_attribute("href") or ""
-                            break
-
-                    if not title:
-                        continue
-
-                    if book_url.startswith("/"):
-                        book_url = f"https://www.babelio.com{book_url}"
-
-                    author_link = row.locator("a[href*='/auteur/']").first
-                    author = author_link.inner_text().strip() if author_link.count() > 0 else ""
-
-                    is_possessed = "Possédé" in row_text or "possede" in row_text.lower()
-
-                    reading_status = "Inconnu"
-                    for st in ["Lu", "À lire", "En cours", "Pense-bête", "Abandonné"]:
-                        if st in row_text:
-                            reading_status = st
-                            break
-
-                    all_books.append(
-                        {
-                            "title": title,
-                            "author": author,
-                            "status": reading_status,
-                            "possessed": is_possessed,
-                            "url": book_url,
-                        }
-                    )
-
-                next_page_link = page.locator(f"a[href*='pageN={page_num + 1}']").first
-                if next_page_link.count() == 0:
-                    break
-
-                page_num += 1
+                    page_num += 1
 
             browser.close()
             return all_books
@@ -242,24 +210,26 @@ class BabelioBot:
             for url in urls:
                 try:
                     page.goto(url, wait_until="domcontentloaded")
-                    page.wait_for_selector(".livre_action_status", timeout=10000)
+                    # The "Gérer ce livre" panel is loaded asynchronously (htmx).
+                    page.wait_for_selector("#ma-lecture .lib-edit-form", timeout=10000)
 
-                    possede_chk = page.locator(".btn_checkbox", has_text="Possédé").first
-                    if "current" in (possede_chk.get_attribute("class") or ""):
+                    # Lazy locator: it re-queries the panel after htmx refreshes it.
+                    possede_chk = page.locator("#lib-f-flags label", has_text="Possédé").locator(
+                        "input[type='checkbox']"
+                    )
+                    if possede_chk.is_checked():
                         click.echo(f"[{url}] Already marked 'Possédé'. Skipping.")
                         results["already"].append(url)
                         continue
 
-                    page.locator(".livre_action_status").first.click()
-                    possede_chk = page.locator(
-                        ".livre_action_btn_open_new .btn_checkbox", has_text="Possédé"
-                    ).first
-                    possede_chk.wait_for(state="visible", timeout=5000)
-                    possede_chk.click()
-                    time.sleep(1)
+                    with page.expect_response(
+                        lambda r: "mabibliotheque.php" in r.url and r.request.method == "POST",
+                        timeout=10000,
+                    ):
+                        possede_chk.check(no_wait_after=True)
+                    page.wait_for_selector("#ma-lecture .lib-edit-form", timeout=5000)
 
-                    possede_chk_after = page.locator(".btn_checkbox", has_text="Possédé").first
-                    if "current" in (possede_chk_after.get_attribute("class") or ""):
+                    if possede_chk.is_checked():
                         click.echo(f"[{url}] Marked 'Possédé'.")
                         results["success"].append(url)
                     else:
@@ -402,7 +372,7 @@ class BabelioBot:
         page.wait_for_selector("input[name='Login' i]", state="visible", timeout=10000)
         page.fill("input[name='Login' i]", self.username)
         page.fill("input[name='Password' i]", self.password)
-        page.click("input[name='sub_btn'], input[type='submit'][value*='onnexion' i]", force=True)
+        page.click("form.auth-form button[name='sub_btn']", force=True)
 
         try:
             page.wait_for_function("window.location.pathname !== '/connection.php'", timeout=10000)
@@ -442,20 +412,20 @@ class BabelioBot:
         found = False
         for query in search_queries:
             page.goto("https://www.babelio.com/", wait_until="domcontentloaded")
-            search_selector = "input#searchbox, input#recherche_general"
+            search_selector = "#header-search-input"
 
             page.wait_for_selector(search_selector, state="visible", timeout=10000)
             page.fill(search_selector, query)
             page.press(search_selector, "Enter")
 
             try:
-                page.wait_for_selector(".livre_top, .list_livre", timeout=8000)
-                if "/resrecherche.php" in page.url:
-                    links = page.locator(".list_livre a.titre_v2").all()
-                    if not links:
-                        continue
-                    links[0].click()
-                    page.wait_for_selector(".livre_top", timeout=8000)
+                page.wait_for_url("**/recherche.php*", timeout=8000)
+                page.wait_for_selector(".rs-section", timeout=8000)
+                results = parse_search_results(page.content())
+                if not results:
+                    continue
+                page.goto(str(results[0]["url"]), wait_until="domcontentloaded")
+                page.wait_for_selector("h1.book-title", timeout=8000)
 
                 found = True
                 break
@@ -466,22 +436,9 @@ class BabelioBot:
             click.echo(f"[{title}] Not found on Babelio after trying queries: {search_queries}")
             return False, "Not Found"
 
-        try:
-            b_title_loc = page.locator('h1[itemprop="name"]')
-            babelio_title = (
-                b_title_loc.inner_text(timeout=2000).strip()
-                if b_title_loc.is_visible()
-                else "Unknown Title"
-            )
-
-            b_author_loc = page.locator('span[itemprop="author"]')
-            babelio_author = (
-                b_author_loc.inner_text(timeout=2000).strip()
-                if b_author_loc.is_visible()
-                else "Unknown Author"
-            )
-        except Exception:
-            babelio_title, babelio_author = "Unknown Title", "Unknown Author"
+        babelio_title, babelio_author = parse_book_header(page.content())
+        babelio_title = babelio_title or "Unknown Title"
+        babelio_author = babelio_author or "Unknown Author"
 
         click.echo("\n--- Found Match on Babelio ---")
         click.echo(f"Original: {title} (ISBN: {isbn}) by {author}")
@@ -493,15 +450,10 @@ class BabelioBot:
             click.echo(f"[{title}] Skipped by user.")
             return False, "User skipped"
 
-        add_btn = page.locator("#btn_ajout_biblio, .btn_ajout_biblio")
-        if not add_btn.is_visible():
-            add_btn = page.locator("a[href*='mes_livres']")
-
-        if add_btn.is_visible():
-            add_btn_text = add_btn.inner_text().strip()
-            if "Lu" in add_btn_text or "lire" in add_btn_text or "En cours" in add_btn_text:
-                click.echo(f"[{title}] Already in library ({add_btn_text}). Skipping.")
-                return True, "Already in library"
+        library_label = page.locator("#hcta-library-label").inner_text().strip()
+        if library_label != ADD_TO_LIBRARY_LABEL:
+            click.echo(f"[{title}] Already in library ({library_label}). Skipping.")
+            return True, "Already in library"
 
         shelf = self._map_status(status_raw)
 
@@ -509,25 +461,20 @@ class BabelioBot:
             click.echo(f"[{title}] DRY RUN: Would add to library with status '{shelf}'.")
             return True, "Added (Dry Run)"
 
-        add_btn.click()
+        page.click("#hcta-library-btn")
         try:
-            page.wait_for_selector("#id_status", timeout=5000)
+            with page.expect_response(
+                lambda r: "mabibliotheque.php" in r.url and r.request.method == "POST",
+                timeout=10000,
+            ):
+                page.locator("#hcta-library-menu button.hcta-menu-item").get_by_text(
+                    shelf, exact=True
+                ).click()
+            page.wait_for_selector("#ma-lecture .lib-edit-form", timeout=5000)
         except TimeoutError:
-            click.echo(f"[{title}] Could not open add to library modal. Skipping.")
-            return False, "Modal Error"
+            click.echo(f"[{title}] Could not add the book to the library. Skipping.")
+            return False, "Add Error"
 
-        status_val = (
-            "1"
-            if shelf == "Lu"
-            else "2"
-            if shelf == "À lire"
-            else "3"
-            if shelf == "En cours"
-            else "1"
-        )
-        page.select_option("#id_status", status_val)
-        page.click("#btn_ajout_livre_valider")
-        time.sleep(1)
         click.echo(f"[{title}] Added to library with status '{shelf}'.")
         return True, "Added"
 
